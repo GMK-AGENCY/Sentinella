@@ -1,5 +1,10 @@
 # Modifiche
 
+## 0.2.8
+
+- Agenda con informazioni principali allineate sulla stessa riga e dettagli sulla seconda; i testi lunghi restano accessibili nei tooltip.
+- Colonna App come prima colonna delle programmazioni salvate, con Codex o Claude e azioni ancora sulla destra.
+
 ## 0.2.7
 
 - Conferme di eliminazione con annullamento predefinito, nome e contenuto della raccolta; cancellazione della raccolta e dei suoi messaggi soltanto dopo conferma, senza cambiare programmazioni esistenti.

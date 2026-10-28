@@ -81,14 +81,17 @@ class AgendaView(tk.Frame):
         available=max(420,self.canvas.winfo_width()-32-235)
         widths=[int(available*ratio) for ratio in (.30,.28,.18,.24)]
         for column,width in enumerate(widths,2):row['inner'].columnconfigure(column,weight=0,minsize=width)
-        row['receipt'].configure(wraplength=max(95,widths[3]-10))
         row['badge'].configure(wraplength=max(65,widths[2]-18))
-        row['countdown'].configure(wraplength=max(90,widths[1]-10))
         self.fit_title(row, max(90, widths[0]-10))
+        self.fit_text(row['countdown'],row['record']['countdown'] if row['record']['status']!='In pausa' else '—',max(70,widths[1]-10))
+        self.fit_text(row['receipt'],'Ricevuto' if row['record'].get('last_confirmed_at') is not None else 'Ricevuta non disponibile',max(70,widths[3]-10))
 
     def fit_title(self,row,available):
-        label=row['title']
-        text=row['record']['title'];font=tkfont.Font(font=label.cget('font'))
+        self.fit_text(row['title'],row['record']['title'],available)
+
+    @staticmethod
+    def fit_text(label,text,available):
+        font=tkfont.Font(font=label.cget('font'))
         if font.measure(text)>available:
             while text and font.measure(text+'…')>available:text=text[:-1]
             text+='…'
@@ -100,21 +103,22 @@ class AgendaView(tk.Frame):
         frame.pack(fill='x',padx=16);frame.pack_propagate(False)
         inner=tk.Frame(frame,bg=BG);inner.pack(fill='both',expand=True,pady=(9,8));inner.grid_propagate(False)
         inner.columnconfigure(0,weight=0,minsize=54);inner.columnconfigure(1,weight=0,minsize=17)
-        clock=tk.Label(inner,text='',width=1,bg=BG,fg=INK,anchor='nw',font=('Segoe UI',11,'bold'))
-        clock.grid(row=0,column=0,rowspan=2,sticky='nsew')
+        inner.rowconfigure(0,minsize=30);inner.rowconfigure(1,minsize=22)
+        clock=tk.Label(inner,text='',width=1,bg=BG,fg=INK,anchor='w',font=('Segoe UI',11,'bold'))
+        clock.grid(row=0,column=0,sticky='nsew')
         accent=tk.Canvas(inner,bg=BG,width=16,height=50,highlightthickness=0,borderwidth=0)
         accent.grid(row=0,column=1,rowspan=2,sticky='ns')
         def label(text,col,line,bold=False,color=INK):
             item=tk.Label(inner,text=text,width=1,bg=BG,fg=color,anchor='w',font=('Segoe UI',11 if bold else 10,'bold' if bold else 'normal'))
-            item.grid(row=line,column=col,sticky='ew',padx=(0,10));return item
+            item.grid(row=line,column=col,sticky='nsew',padx=(0,10));return item
         title=label(record['title'],2,0,True)
         frequency=label(record['frequency'],2,1,color=MUTED)
         countdown=label('',3,0,True)
         expected=label('',3,1,color=MUTED)
-        badge=tk.Label(inner,font=('Segoe UI',10,'bold'),width=1,padx=9,pady=4,anchor='w')
-        badge.grid(row=0,column=4,rowspan=2,sticky='ew',padx=(0,10))
+        badge=tk.Label(inner,font=('Segoe UI',10,'bold'),width=1,padx=9,pady=4,anchor='nw')
+        badge.grid(row=0,column=4,rowspan=2,sticky='new',padx=(0,10))
         receipt=label('',5,0,color=MUTED);receipt_date=label('',5,1,color=MUTED)
-        actions=tk.Frame(inner,bg=BG);actions.grid(row=0,column=6,rowspan=2,sticky='e')
+        actions=tk.Frame(inner,bg=BG);actions.grid(row=0,column=6,sticky='e')
         toggle=ttk.Button(actions,width=10,style='AgendaAction.TButton',command=lambda:self.on_toggle(jid));toggle.pack(side='left',padx=(0,5))
         title.configure(cursor='hand2',takefocus=True)
         title.bind('<Button-1>',lambda _e:self.on_edit(jid))
@@ -180,8 +184,8 @@ class AgendaView(tk.Frame):
             row['toggle'].configure(text='Ⅱ Pausa' if record['enabled'] else '▶ Riprendi')
             # Existing bindings are replaced through reusable tooltip instances.
             if not row['tooltips']:
-                row['tooltips']=[Tooltip(row['title'],record['title']),Tooltip(row['badge'],reason),Tooltip(row['countdown'],full+'\n'+reason),Tooltip(row['expected'],expected),Tooltip(row['toggle'],'')]
-            for tip,text in zip(row['tooltips'],(record['title'],reason,full+'\n'+reason,expected,'Metti in pausa solo questo messaggio' if record['enabled'] else 'Riprendi questo messaggio')):tip.text=text
+                row['tooltips']=[Tooltip(row['title'],record['title']),Tooltip(row['badge'],reason),Tooltip(row['countdown'],full+'\n'+reason),Tooltip(row['expected'],expected),Tooltip(row['toggle'],''),Tooltip(row['receipt'],'')]
+            for tip,text in zip(row['tooltips'],(record['title'],reason,full+'\n'+reason,expected,'Metti in pausa solo questo messaggio' if record['enabled'] else 'Riprendi questo messaggio','Ricevuto' if at is not None else 'Ricevuta non disponibile')):tip.text=text
             row['frequency'].configure(text=record['frequency']);self.layout_row(row)
         if reorder:
             for header in self.section_headers.values():header.destroy()

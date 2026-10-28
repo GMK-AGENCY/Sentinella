@@ -35,10 +35,10 @@ class MessagesPanel(ttk.Frame):
         self.split=ttk.Panedwindow(self.list_view,orient='vertical');self.split.pack(fill='both',expand=True)
         listing=ttk.Frame(self.split);self.split.add(listing,weight=1)
         listing.columnconfigure(0,weight=1);listing.rowconfigure(0,weight=1)
-        self.job_list=ttk.Treeview(listing,columns=('title','state','next','last','toggle','delete'),show='headings',height=3,selectmode='browse')
-        for col,label,width in [('title','Destinatario',195),('state','Stato',135),('next','Prossima attività',175),('last','Ultima consegna',120),('toggle','',112),('delete','',38)]:
+        self.job_list=ttk.Treeview(listing,columns=('app','title','state','next','last','toggle','delete'),show='headings',height=3,selectmode='browse')
+        for col,label,width in [('app','App',64),('title','Destinatario',180),('state','Stato',125),('next','Prossima attività',150),('last','Ultima consegna',110),('toggle','',112),('delete','',38)]:
             self.job_list.heading(col,text=label,anchor='w')
-            self.job_list.column(col,width=width,minwidth=width if col in {'toggle','delete'} else 70,anchor='w',stretch=col not in {'toggle','delete'})
+            self.job_list.column(col,width=width,minwidth=width if col in {'app','toggle','delete'} else 70,anchor='w',stretch=col not in {'app','toggle','delete'})
         self.job_list.grid(row=0,column=0,sticky='nsew')
         for orient,axis,r,c,sticky in [('vertical','y',0,1,'ns'),('horizontal','x',1,0,'ew')]:
             bar=AutoScrollbar(listing,orient=orient,command=getattr(self.job_list,axis+'view'));bar.grid(row=r,column=c,sticky=sticky)
@@ -599,7 +599,7 @@ class MessagesPanel(ttk.Frame):
             display = schedule_display(job, states.get(job["id"]), config, now, waiting_reason)
             self.display_states[job["id"]] = display
             last=clock_label(receipts[job['id']],now) if job['id'] in receipts else display['last_sent']
-            values = (job["title"], display["status"], display["next_precise"], last, '', '')
+            values = (job['app'].title(),job["title"], display["status"], display["next_precise"], last, '', '')
             if job["id"] in existing:
                 if tuple(self.job_list.item(job["id"], "values")) != values:
                     self.job_list.item(job["id"], values=values, tags=(display["activation"],))
