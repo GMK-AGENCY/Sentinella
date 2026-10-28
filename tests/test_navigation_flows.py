@@ -101,6 +101,16 @@ class NavigationFlowTests(unittest.TestCase):
     def pump(self):
         self.root.update();self.root.update_idletasks()
 
+    def row_action(self,job_id,action):
+        # Hosted Windows runners may have a narrower desktop. Exercise a real
+        # visible control, never invoke a button clipped outside the viewport.
+        self.panel.job_list.see(job_id)
+        self.panel.job_list.xview_moveto(1)
+        self.panel.row_actions.refresh();self.pump()
+        button=self.panel.row_actions.buttons[job_id][action]
+        self.assertTrue(button.winfo_ismapped(),(job_id,action,self.panel.job_list.xview()))
+        return button
+
     def saved(self, job_id):
         return next((job for job in message_engine.load_jobs() if job['id']==job_id),None)
 
@@ -304,7 +314,7 @@ class NavigationFlowTests(unittest.TestCase):
     def test_row_toggle_does_not_select_or_overwrite_another_dirty_editor(self):
         self.edit();self.change_text()
         before=self.saved('qa-1');self.panel.row_actions.refresh();self.pump()
-        button=self.panel.row_actions.buttons['qa-1']['toggle']
+        button=self.row_action('qa-1','toggle')
         self.assertEqual(button.cget('text'),'Riprendi')
         button.invoke();self.pump()
         self.assertTrue(self.saved('qa-1')['enabled'])
@@ -317,7 +327,7 @@ class NavigationFlowTests(unittest.TestCase):
     def test_delete_cancel_then_confirm_retains_ledger_history_and_other_wip(self):
         self.edit();self.change_text()
         before=self.ledger();self.panel.row_actions.refresh();self.pump()
-        button=self.panel.row_actions.buttons['qa-1']['delete']
+        button=self.row_action('qa-1','delete')
         self.assertEqual(str(button.cget('compound')),'none')
         self.confirm.return_value=False;button.invoke();self.pump()
         self.assertIsNotNone(self.saved('qa-1'))
