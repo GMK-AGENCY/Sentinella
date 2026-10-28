@@ -131,7 +131,7 @@ class DashboardModelTests(unittest.TestCase):
     def test_owned_preparation_has_no_countdown_and_is_informational(self):
         state = {self.job['id']: {'version': self.job['version'], 'phase':'drafted', 'due':self.now+10}}
         result = snapshot({}, [self.job], state, [], {}, self.now)
-        self.assertEqual(result['schedule'][0]['countdown'], 'Attende il prossimo controllo')
+        self.assertEqual(result['schedule'][0]['countdown'], 'Messaggio pronto da inviare')
         self.assertEqual(result['attention'][0]['severity'], 'info')
 
 
