@@ -345,8 +345,9 @@ class NavigationFlowTests(unittest.TestCase):
                     self.assertLessEqual(x+button.winfo_width(),self.root.winfo_width(),(dimensions,button.cget('text')))
                     self.assertLessEqual(y+button.winfo_height(),self.root.winfo_height(),(dimensions,button.cget('text')))
             children=self.panel.option_columns.winfo_children()
-            self.assertEqual(sorted(int(child.grid_info()['column']) for child in children),[0,1,2,3])
-            self.assertTrue(all(int(child.grid_info()['row'])==0 for child in children))
+            for row in (0,1):
+                row_children=[child for child in children if int(child.grid_info()['row'])==row]
+                self.assertEqual(sorted(int(child.grid_info()['column']) for child in row_children),[0,1,2,3])
             for child in children:
                 self.assertLessEqual(child.winfo_x()+child.winfo_width(),self.panel.option_columns.winfo_width())
             self.assertEqual(sum(isinstance(child,Switch) for child in children),3)

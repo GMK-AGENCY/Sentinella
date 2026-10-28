@@ -8,7 +8,7 @@ Il timer gira nel programma: **non richiede una chat di controllo o automazioni 
 
 Requisiti: Windows 11 a 64 bit e le app desktop che si desidera controllare. **La versione Windows installabile include Python e tutte le dipendenze: non devi installare Python.** Non serve una chiave API OpenAI.
 
-1. Scarica `Sentinella-0.2.6-Windows-x64-Setup.exe` dalla release.
+1. Scarica `Sentinella-0.2.7-Windows-x64-Setup.exe` dalla release.
 2. Esegui l'installer per il tuo utente: non richiede diritti di amministratore.
 3. Avvia **Sentinella** dal menu Start. Il primo avvio è in pausa.
 4. In **Impostazioni**, premi **Rileva applicazioni**, scegli le funzioni e le cartelle già autorizzate, poi togli la pausa quando sei pronto.
@@ -57,7 +57,7 @@ Prima di lasciare un editor con modifiche non salvate, **Salva modifiche** le re
 
 ## Messaggi salvati
 
-La sezione **Messaggi salvati** organizza testi ricercabili e modificabili in raccolte. Un archivio nuovo include quattro raccolte con dodici messaggi standard; gli archivi esistenti conservano i testi personali. I soli messaggi predefiniti riconosciuti integralmente e mai modificati vengono aggiornati senza riscrivere l'archivio alla lettura. **Nuova raccolta** crea una categoria; **Nuovo messaggio** prepara un testo nella raccolta scelta. **Salva nei messaggi** apre una finestra per scegliere nome e raccolta senza salvare o attivare la programmazione; **Usa nella programmazione** lo riporta nell'editor senza inviarlo o creare una programmazione. Il testo già presente nell'editor è protetto da conferma. L'archivio locale `message-library.json` e la sua copia `.bak` contengono dati privati e sono esclusi dai pacchetti pubblici.
+La sezione **Messaggi salvati** organizza testi ricercabili e modificabili in raccolte. Un archivio nuovo include quattro raccolte con dodici messaggi standard; gli archivi esistenti conservano i testi personali. I soli messaggi predefiniti riconosciuti integralmente e mai modificati vengono aggiornati senza riscrivere l'archivio alla lettura. **Nuova raccolta** crea una categoria; **Nuovo messaggio** prepara un testo nella raccolta scelta. **Salva nei messaggi** apre una finestra per scegliere nome e raccolta senza salvare o attivare la programmazione; **Usa messaggio salvato**, nell’editor delle programmazioni, inserisce un testo della raccolta nel messaggio. Il testo già presente nell'editor è protetto da conferma. Eliminare una raccolta richiede conferma con il numero dei messaggi che verranno rimossi; le programmazioni già create conservano il proprio testo. L'archivio locale `message-library.json` e la sua copia `.bak` contengono dati privati e sono esclusi dai pacchetti pubblici.
 
 Nella scelta delle chat, **ID sessione** mostra un identificativo abbreviato quando è ricavabile senza ambiguità. Il filtro Cerca include anche l'ID. Un nome duplicato non viene associato arbitrariamente a una sessione: rinomina la chat nell'applicazione e aggiorna l'elenco.
 

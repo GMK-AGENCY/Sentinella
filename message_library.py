@@ -169,10 +169,30 @@ class MessageLibraryStore:
         data['collections']=[row for row in data['collections'] if row['id']!=item['id']]+[item]
         self._write(previous,data);return dict(item)
 
-    def delete_collection(self,collection_id):
+    def restore_defaults(self):
+        """Explicit, additive recovery; never re-seed a deletion on ordinary reads."""
+        previous=self._read();data=self._normalized(previous);defaults=starter_library()
+        mapped={};added_collections=0;added_messages=0
+        for collection in defaults['collections']:
+            existing=next((row for row in data['collections'] if row['id']==collection['id']),None)
+            if existing is None:
+                existing=next((row for row in data['collections'] if row['name'].casefold()==collection['name'].casefold()),None)
+            if existing is None:
+                existing=dict(collection);data['collections'].append(existing);added_collections+=1
+            mapped[collection['id']]=existing['id']
+        for item in defaults['items']:
+            if any(row['id']==item['id'] for row in data['items']):continue
+            restored={**item,'collection_id':mapped[item['collection_id']]}
+            if any(all(row.get(key)==restored[key] for key in ('title','text','collection_id')) for row in data['items']):continue
+            data['items'].append(restored);added_messages+=1
+        if added_collections or added_messages:self._write(previous,data)
+        return {'collections':added_collections,'messages':added_messages}
+
+    def delete_collection(self,collection_id,*,delete_messages=False):
         previous=self._read();data=self._normalized(previous)
         if not any(row['id']==collection_id for row in data['collections']):raise ValueError('Raccolta non trovata')
-        if any(row['collection_id']==collection_id for row in data['items']):raise ValueError('La raccolta contiene messaggi. Spostali in un’altra raccolta prima di eliminarla.')
+        if any(row['collection_id']==collection_id for row in data['items']) and not delete_messages:raise ValueError('La raccolta contiene messaggi. Conferma anche l’eliminazione dei messaggi prima di eliminarla.')
+        data['items']=[row for row in data['items'] if row['collection_id']!=collection_id]
         data['collections']=[row for row in data['collections'] if row['id']!=collection_id]
         self._write(previous,data)
 
@@ -186,6 +206,7 @@ class MessageLibraryPanel(ttk.Frame):
         self.baseline = ("", "")
         self.items = []
         self.rendering = False
+        self._refreshing=False
         self.query = tk.StringVar()
         self.title_value = tk.StringVar()
         self.status = tk.StringVar()
@@ -246,7 +267,6 @@ class MessageLibraryPanel(ttk.Frame):
         self.save_button=ttk.Button(footer,text='Salva messaggio',command=self.save,style='Primary.TButton');self.save_button.pack(side='right')
         self.delete_message_button=ttk.Button(footer,text='Elimina messaggio',command=self.remove,state='disabled')
         self.delete_message_button.pack(side='right',padx=(8,8))
-        self.use_button=ttk.Button(footer,text='Usa nella programmazione',command=self.use);self.use_button.pack(side='right')
         feedback=ttk.Label(editor,textvariable=self.status,style='Muted.TLabel',wraplength=520)
         def show_feedback(*_):
             if self.status.get():feedback.pack(fill='x',pady=(0,10),before=fields)
@@ -287,14 +307,19 @@ class MessageLibraryPanel(ttk.Frame):
     def remove_collection(self):
         collection_id=self.collection_options.get(self.collection_filter.get())
         if collection_id is None:self.status.set('Scegli una raccolta da eliminare.');return
-        if any(item.get('collection_id')==collection_id for item in self.items):
-            self.status.set('La raccolta contiene messaggi. Spostali prima di eliminarla.');return
         if not self._may_leave():return
-        if not messagebox.askyesno('Elimina raccolta vuota','Eliminare questa raccolta vuota? Le programmazioni non vengono modificate.',parent=self):return
-        try:self.store.delete_collection(collection_id)
+        name=next((name for name,key in self.collection_options.items() if key==collection_id),'')
+        try:count=len(self.store.list(collection_id=collection_id))
         except (OSError,ValueError) as exc:self.status.set(str(exc));return
-        self.collection_filter.set('Tutte le raccolte');self.refresh();self._load()
-        self.status.set('Raccolta vuota eliminata.')
+        contents=(f' e il suo messaggio salvato' if count==1 else f' e i suoi {count} messaggi salvati') if count else ''
+        if not messagebox.askyesno('Elimina raccolta',f'Eliminare la raccolta «{name}»{contents}?\n\nLe programmazioni già create restano invariate.',parent=self,default='no'):return False
+        selected_id=self.selected_id
+        try:self.store.delete_collection(collection_id,delete_messages=True)
+        except (OSError,ValueError) as exc:self.status.set(str(exc));return
+        if not self.refresh(guard=False):return False
+        self._load(next((item for item in self.items if item['id']==selected_id),None))
+        self.status.set('Raccolta eliminata.' if not count else f'Raccolta e {count} messaggi eliminati.')
+        return True
 
     def _values(self):
         return self.title_value.get(), self.text.get("1.0", "end-1c")
@@ -326,13 +351,17 @@ class MessageLibraryPanel(ttk.Frame):
         return resolve_unsaved(self, dirty=self.is_dirty(), save=self.save, discard=self.discard_changes)
 
     def refresh(self, reload=True, *, guard=True):
+        if self._refreshing:return True
         if reload and guard and not self._may_leave():
             return False
+        self._refreshing=True
         try:
             if reload:
                 self.items = self.store.list()
                 self.collection_options={row['name']:row['id'] for row in self.store.collections()}
                 self.collection_picker.configure(values=['Tutte le raccolte',*self.collection_options])
+                if self.collection_filter.get() not in {'Tutte le raccolte',*self.collection_options}:
+                    self.collection_filter.set('Tutte le raccolte')
                 self.model_collection.configure(values=list(self.collection_options))
                 if self.collection_value.get() not in self.collection_options:self.collection_value.set(next(iter(self.collection_options),''))
                 if self.store.recovery_notice:
@@ -362,6 +391,7 @@ class MessageLibraryPanel(ttk.Frame):
 
         finally:
             self.rendering = False
+            self._refreshing=False
 
     def _load(self, item=None):
         self.title_error.set("");self.text_error.set("")
@@ -434,7 +464,7 @@ class MessageLibraryPanel(ttk.Frame):
             self.title_value.set(item["title"])
             self.refresh(guard=False)
             self.baseline_collection=self.collection_value.get()
-            self.status.set("Messaggio salvato. Nessun invio programmato.")
+            self.status.set("Messaggio salvato.")
             return True
         except (OSError, ValueError) as exc:
             self.status.set(str(exc))
@@ -461,12 +491,12 @@ class MessageLibraryPanel(ttk.Frame):
         if not self.selected_id:
             self.status.set("Seleziona un messaggio da eliminare.")
             return
-        if not messagebox.askyesno("Elimina messaggio", "Eliminare questo messaggio dalla raccolta? Le programmazioni già create restano invariate.", parent=self):
+        if not messagebox.askyesno("Elimina messaggio", f'Eliminare il messaggio «{self.title_value.get()}» dalla raccolta?\n\nLe programmazioni già create restano invariate.', parent=self,default='no'):
             return
         try:
             self.store.delete(self.selected_id)
             self._load()
-            self.refresh()
+            self.refresh(guard=False)
             self.status.set("Messaggio eliminato dalla raccolta.")
         except (OSError, ValueError) as exc:
             self.status.set(str(exc))

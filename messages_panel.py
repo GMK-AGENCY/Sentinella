@@ -103,18 +103,21 @@ class MessagesPanel(ttk.Frame):
         self.minutes=tk.StringVar(value='15');self.repeat=tk.BooleanVar(value=True);self.send_when_active=tk.BooleanVar(value=False);self.send_when_present=tk.BooleanVar(value=False)
         options=ttk.Frame(self.write_page);options.pack(fill='x',pady=(12,2));self.option_columns=options
         for col in range(4):options.columnconfigure(col,weight=1,uniform='options')
-        timing=ttk.Frame(options);timing.grid(row=0,column=0,sticky='nw',padx=(0,12))
-        ttk.Label(timing,text='Frequenza',style='Muted.TLabel').pack(anchor='w',pady=(0,5))
-        frequency=ttk.Frame(timing);frequency.pack(anchor='w')
+        for col,heading in enumerate(('Frequenza','Ripetizione','Se la chat lavora','Se usi il PC')):
+            ttk.Label(options,text=heading,style='Muted.TLabel').grid(row=0,column=col,sticky='w',pady=(0,6))
+        frequency=ttk.Frame(options);frequency.grid(row=1,column=0,sticky='w',padx=(0,12))
         ttk.Combobox(frequency,textvariable=self.minutes,values=(5,10,15,30,60),width=5).pack(side='left')
         ttk.Label(frequency,text='minuti',style='Muted.TLabel').pack(side='left',padx=(6,0))
         for col,(label,var,hint) in enumerate([
-            ('Ripeti nel tempo',self.repeat,'Acceso: ripete il messaggio all’intervallo scelto. Spento: invia una sola volta.'),
-            ('Invia anche mentre la chat lavora',self.send_when_active,'Acceso: consente l’invio o l’accodamento mentre la chat lavora. Spento: aspetta che sia libera.'),
-            ('Invia anche mentre uso il PC',self.send_when_present,'Acceso: consente l’invio nativo senza prendere il focus. Spento: attende l’inattività. La digitazione e le bozze restano protette.')],start=1):
+            ('Ripeti',self.repeat,'Acceso: ripete il messaggio all’intervallo scelto. Spento: invia una sola volta.'),
+            ('Invia anche',self.send_when_active,'Acceso: consente l’invio o l’accodamento mentre la chat lavora. Spento: aspetta che sia libera.'),
+            ('Invia anche',self.send_when_present,'Acceso: consente l’invio nativo senza prendere il focus. Spento: attende l’inattività. La digitazione e le bozze restano protette.')],start=1):
             switch=Switch(options,text=label,variable=var,help_text=hint)
             switch.label.configure(wraplength=115)
-            switch.grid(row=0,column=col,sticky='ew',padx=(0,10 if col<3 else 0),pady=2)
+            switch.grid(row=1,column=col,sticky='ew',padx=(0,10 if col<3 else 0),pady=2)
+            def update_label(*_,control=switch,value=var,repeated=col==1):
+                control.label.configure(text=('Ripeti' if value.get() else 'Una volta') if repeated else ('Invia anche' if value.get() else 'Attendi'))
+            var.trace_add('write',update_label);update_label()
         # Summary values remain available to validation, without duplicating the
         # selected row and its timer below the options.
         self.preview=tk.StringVar();self.recipient_summary=tk.StringVar()

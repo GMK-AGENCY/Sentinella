@@ -79,6 +79,43 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(len(MessageLibraryStore(self.store.path).list()),12)
         self.assertIsNone(self.store.get(removed['id']))
 
+    def test_explicit_restore_only_adds_missing_defaults_and_preserves_customizations(self):
+        self.store.path.unlink()
+        defaults=starter_library();removed=defaults['items'][0];edited=defaults['items'][1]
+        self.store.delete(removed['id'])
+        self.store.save('Nome personale','Testo personale\n',edited['id'])
+        personal=self.store.save('Aggiunto da me','Non sostituire')
+        result=self.store.restore_defaults()
+        self.assertEqual(result,{'collections':0,'messages':1})
+        self.assertEqual(self.store.get(removed['id'])['text'],removed['text'])
+        self.assertEqual(self.store.get(edited['id'])['text'],'Testo personale\n')
+        self.assertEqual(self.store.get(personal['id']),personal)
+        before=self.store.path.read_bytes()
+        self.assertEqual(self.store.restore_defaults(),{'collections':0,'messages':0})
+        self.assertEqual(self.store.path.read_bytes(),before)
+
+    def test_restore_reuses_existing_collection_name_without_duplicate_or_overwrite(self):
+        import uuid
+        default=starter_library()['collections'][0]
+        custom={'id':str(uuid.uuid4()),'name':default['name']}
+        self.store.path.write_text(json.dumps({'schema_version':1,'collections':[custom],'items':[]}))
+        result=self.store.restore_defaults()
+        self.assertEqual(result,{'collections':3,'messages':12})
+        self.assertEqual(len(self.store.collections()),4)
+        self.assertTrue(all(item['collection_id']==custom['id'] for item in self.store.list(collection_id=custom['id'])))
+        self.assertEqual(len(self.store.list(collection_id=custom['id'])),3)
+
+    def test_collection_delete_requires_explicit_content_permission_and_is_atomic(self):
+        collection=self.store.save_collection('Da eliminare');other=self.store.save_collection('Da conservare')
+        self.store.save('Uno','Testo uno',collection_id=collection['id'])
+        survivor=self.store.save('Due','Testo due',collection_id=other['id'])
+        before=self.store.path.read_bytes()
+        with self.assertRaises(ValueError):self.store.delete_collection(collection['id'])
+        self.assertEqual(self.store.path.read_bytes(),before)
+        self.store.delete_collection(collection['id'],delete_messages=True)
+        self.assertEqual(self.store.list(),[survivor])
+        self.assertNotIn(collection['id'],{row['id'] for row in self.store.collections()})
+
     def test_legacy_items_keep_identity_and_literal_text_and_are_not_rewritten_on_read(self):
         import uuid
         item={'id':str(uuid.uuid4()),'title':'Vecchio','text':'È letterale\n  spazi\n','updated_at':1}
@@ -229,6 +266,48 @@ class CollectionInterfaceTests(unittest.TestCase):
     def tearDown(self):
         self.root.destroy();self.profile_patch.stop();self.temp.cleanup()
 
+    def test_delete_collection_cancel_confirms_name_count_and_keeps_all_data(self):
+        self.panel.collection_filter.set('Qualità')
+        before=self.panel.store._read()
+        with patch('message_library.messagebox.askyesno',return_value=False) as confirm:
+            self.assertFalse(self.panel.remove_collection())
+        self.assertEqual(confirm.call_args.kwargs['default'],'no')
+        self.assertIn('Qualità',confirm.call_args.args[1]);self.assertIn('3 messaggi',confirm.call_args.args[1])
+        self.assertEqual(self.panel.store._read(),before)
+        self.assertEqual(len(self.panel.tree.get_children()),3)
+
+    def test_delete_nonempty_collection_refreshes_list_and_selectors_immediately(self):
+        survivor=next(item for item in self.panel.items if item['collection_id']==self.panel.collection_options['Riepiloghi'])
+        self.panel._load(survivor)
+        self.panel.collection_filter.set('Qualità')
+        with patch('message_library.messagebox.askyesno',return_value=True),patch('unsaved_changes._choose_unsaved',side_effect=AssertionError('No spurious unsaved dialog')):
+            self.assertTrue(self.panel.remove_collection())
+            self.root.update()
+        self.assertEqual(self.panel.collection_filter.get(),'Tutte le raccolte')
+        self.assertNotIn('Qualità',self.panel.collection_options)
+        self.assertNotIn('Qualità',self.panel.collection_picker.cget('values'))
+        self.assertNotIn('Qualità',self.panel.model_collection.cget('values'))
+        self.assertEqual(len(self.panel.items),9)
+        self.assertEqual(len(self.panel.tree.get_children()),9)
+        self.assertEqual(self.panel.selected_id,survivor['id'])
+        self.assertEqual(self.panel.text.get('1.0','end-1c'),survivor['text'])
+        self.assertFalse(self.panel.is_dirty())
+
+    def test_delete_last_collection_clears_editor_and_stays_clean(self):
+        for collection in self.panel.store.collections():
+            self.panel.store.delete_collection(collection['id'],delete_messages=True)
+        collection=self.panel.store.save_collection('Ultima')
+        item=self.panel.store.save('Ultimo messaggio','Testo',collection_id=collection['id'])
+        self.panel.refresh(guard=False);self.panel.collection_filter.set('Ultima');self.panel._load(item)
+        with patch('message_library.messagebox.askyesno',return_value=True):self.assertTrue(self.panel.remove_collection())
+        self.root.update()
+        self.assertEqual(self.panel.tree.get_children(),())
+        self.assertEqual(self.panel.model_collection.cget('values'),'')
+        self.assertEqual(self.panel.collection_value.get(),'')
+        self.assertEqual(self.panel.text.get('1.0','end-1c'),'')
+        self.assertIsNone(self.panel.selected_id)
+        self.assertFalse(self.panel.is_dirty())
+
     def test_collection_filter_dirty_move_and_literal_reuse(self):
         panel=self.panel
         self.assertEqual(len(panel.items),12)
@@ -260,8 +339,7 @@ class CollectionInterfaceTests(unittest.TestCase):
                 self.assertLessEqual(button.winfo_rootx()+button.winfo_width(),self.root.winfo_rootx()+self.root.winfo_width())
                 self.assertLessEqual(button.winfo_rooty()+button.winfo_height(),self.root.winfo_rooty()+self.root.winfo_height())
             self.assertEqual(self.panel.model_collection.winfo_rooty(),self.panel.title_entry.winfo_rooty())
-            use=next(child for child in widgets(self.panel) if isinstance(child,ttk.Button) and child.cget('text')=='Usa nella programmazione')
-            self.assertLess(use.winfo_rootx(),self.panel.save_button.winfo_rootx())
+            self.assertFalse(any(isinstance(child,ttk.Button) and child.cget('text')=='Usa nella programmazione' for child in widgets(self.panel)))
 
     def test_message_actions_footer_placeholder_and_collection_icons(self):
         from tkinter import ttk
@@ -288,10 +366,11 @@ class CollectionInterfaceTests(unittest.TestCase):
         self.assertEqual(len(entries),1);self.assertEqual(panel.query.get(),'')
         self.root.geometry('1040x790');self.root.update();self.root.update_idletasks()
         buttons={button.cget('text'):button for button in widgets(panel) if isinstance(button,ttk.Button)}
-        use=buttons['Usa nella programmazione'];delete=buttons['Elimina messaggio'];save=buttons['Salva messaggio']
-        self.assertIs(use.master,delete.master);self.assertIs(delete.master,save.master)
-        self.assertLess(use.winfo_rootx(),delete.winfo_rootx());self.assertLess(delete.winfo_rootx(),save.winfo_rootx())
-        self.assertEqual(use.winfo_rooty(),save.winfo_rooty())
+        self.assertNotIn('Usa nella programmazione',buttons)
+        delete=buttons['Elimina messaggio'];save=buttons['Salva messaggio']
+        self.assertIs(delete.master,save.master)
+        self.assertLess(delete.winfo_rootx(),save.winfo_rootx())
+        self.assertEqual(delete.winfo_rooty(),save.winfo_rooty())
         self.assertLess(panel.text.winfo_rooty(),save.winfo_rooty())
         self.assertLess(buttons['+ Nuovo messaggio'].winfo_rooty(),panel.title_entry.winfo_rooty())
         self.assertFalse(any(word in str(widget.cget('text')).casefold() for widget in widgets(panel) if isinstance(widget,ttk.Label) for word in ('modello','modelli')))

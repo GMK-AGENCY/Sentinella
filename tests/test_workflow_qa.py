@@ -29,6 +29,30 @@ SOURCE = Path(__file__).resolve().parents[1]
 
 
 class WorkflowQA(unittest.TestCase):
+    def test_authorized_folder_removal_cancel_keeps_saved_configuration_and_list(self):
+        panel=approvals_panel.ApprovalsPanel(self.root)
+        panel.roots.insert('end','C:/Example/Project');panel.save();panel.roots.selection_set(0)
+        before=(self.profile/'approval-config.json').read_bytes()
+        with patch('approvals_panel.messagebox.askyesno',return_value=False) as confirm:
+            self.assertFalse(panel.remove())
+        self.assertEqual(confirm.call_args.kwargs['default'],'no')
+        self.assertEqual(panel.roots.get(0,'end'),('C:/Example/Project',))
+        self.assertEqual((self.profile/'approval-config.json').read_bytes(),before)
+        panel.destroy()
+
+    def test_authorized_folder_removal_confirms_and_rolls_back_on_failed_save(self):
+        panel=approvals_panel.ApprovalsPanel(self.root)
+        panel.roots.insert('end','C:/Example/Project');panel.save();panel.roots.selection_set(0)
+        before=(self.profile/'approval-config.json').read_bytes()
+        with patch('approvals_panel.messagebox.askyesno',return_value=True),patch.object(panel,'save',side_effect=OSError('QA failed save')):
+            self.assertFalse(panel.remove())
+        self.assertEqual(panel.roots.get(0,'end'),('C:/Example/Project',))
+        self.assertEqual((self.profile/'approval-config.json').read_bytes(),before)
+        with patch('approvals_panel.messagebox.askyesno',return_value=True):self.assertTrue(panel.remove())
+        self.assertEqual(panel.roots.get(0,'end'),())
+        self.assertEqual(automation_policy.load_config()['allowed_project_roots'],[])
+        panel.destroy()
+
     def setUp(self):
         self.original_hashes = {
             name: hashlib.sha256((SOURCE / name).read_bytes()).hexdigest()

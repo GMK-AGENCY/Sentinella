@@ -356,7 +356,7 @@ def build_workspace(app):
     settings = app.settings_panel = SettingsPanel(app.notebook, app.refresh_dashboard, lambda: os.startfile(str(ROOT / 'logs')), app.restart_reader)
     pages = [(overview, 'Panoramica', 'Le tue programmazioni, a colpo d’occhio.'),
              (app.messages_panel, 'Programmazioni', 'Destinatari, frequenze e comportamento degli invii'),
-             (app.library_panel, 'Messaggi salvati', 'Organizza i messaggi in raccolte e riutilizzali nelle programmazioni. Il salvataggio non avvia invii.'),
+             (app.library_panel, 'Messaggi salvati', 'Organizza i messaggi in raccolte e riutilizzali nelle programmazioni.'),
              (app.history_panel, 'Registro invii', 'Cronologia, motivi dei rinvii e prove di consegna'),
              (notifications, 'Notifiche', 'Eventi osservati nelle applicazioni, separati dalle ricevute'),
              (settings, 'Impostazioni', 'Comportamento, tempi, cartelle autorizzate e diagnostica')]

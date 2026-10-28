@@ -1,7 +1,7 @@
 """Explicit project roots for automatic routine file approvals."""
 import json
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
 from message_engine import ROOT
 from switch_control import Switch
@@ -80,6 +80,13 @@ class ApprovalsPanel(ttk.Frame):
     def remove(self):
         selected = self.roots.curselection()
         if selected:
-            self.roots.delete(selected[0])
-            self.save()
+            index=selected[0];path=self.roots.get(index)
+            if not messagebox.askyesno('Rimuovi cartella autorizzata',f'Rimuovere «{path}» dalle cartelle autorizzate?\n\nI file sul PC non verranno eliminati.',parent=self,default='no'):return False
+            self.roots.delete(index)
+            try:self.save()
+            except (OSError,ValueError) as exc:
+                self.roots.insert(index,path);self.roots.selection_set(index)
+                self.status.set(f'Rimozione non riuscita: {exc}');self.refresh_selection();return False
             self.refresh_selection()
+            return True
+        return False

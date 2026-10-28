@@ -1,5 +1,13 @@
 # Modifiche
 
+## 0.2.7
+
+- Conferme di eliminazione con annullamento predefinito, nome e contenuto della raccolta; cancellazione della raccolta e dei suoi messaggi soltanto dopo conferma, senza cambiare programmazioni esistenti.
+- Aggiornamento immediato di elenco, filtro, selettori ed editor dopo la rimozione di una raccolta, senza richieste spurie di salvataggio.
+- Ripristino esplicito e additivo dei messaggi predefiniti eliminati, preservando i testi personalizzati e senza far riapparire elementi cancellati durante le normali letture.
+- Messaggi salvati senza comando Usa nella programmazione e senza frase sul mancato avvio degli invii. Il riuso resta disponibile dall'editor delle programmazioni.
+- Opzioni di invio su quattro colonne con titoli e controlli allineati, nello stile nativo dell'applicazione.
+
 ## 0.2.6
 
 - Salvataggi uniformi per programmazioni, raccolta e tempi dei controlli: Salva modifiche o Scarta modifiche; chiusura dell'avviso ed Esc mantengono l'editor. La protezione comprende cambio pagina, cambio elemento e chiusura dell'app.
