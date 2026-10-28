@@ -1,6 +1,7 @@
 """Classification only: notification text is data, never an instruction."""
 import re
 from dataclasses import dataclass
+from datetime import datetime
 
 
 @dataclass(frozen=True)
@@ -57,3 +58,10 @@ class Deduplicator:
         while len(self.seen) > self.capacity:
             del self.seen[next(iter(self.seen))]
         return True
+
+
+def after_cleanup(notification, cleared_at):
+    """A cleared Windows toast must not return after restarting Sentinella."""
+    if not cleared_at:return True
+    try:return datetime.fromisoformat(notification.created).timestamp()>cleared_at
+    except (ValueError,TypeError,OverflowError):return True

@@ -7,9 +7,10 @@ import threading
 import time
 from tkinter import ttk
 from automation_policy import ROOT, load_config
-from polling_policy import validate_interval
+from polling_policy import interval, validate_interval
 from startup_manager import startup_enabled, set_startup
 from config_store import detect_running_apps
+from unsaved_changes import resolve_unsaved
 
 
 def save_shared_controls(questions, approvals, recovery):
@@ -57,14 +58,67 @@ class SettingsPanel(ttk.Frame):
     def __init__(self, parent, on_saved, open_logs, restart_reader):
         from workspace_ui import build_settings
         build_settings(self, parent, on_saved, open_logs, restart_reader)
+        self.timing_baseline = self._timing_values()
+        self.saved_away = bool(self.away.get())
+
+    def _timing_values(self):
+        values = []
+        for variable in (self.notifications, self.chats, self.idle):
+            text = variable.get().strip()
+            try:
+                number = float(text.replace(',', '.'))
+                values.append(number if math.isfinite(number) else text)
+            except ValueError:
+                values.append(text)
+        return tuple(values)
+
+    def is_dirty(self):
+        return self._timing_values() != self.timing_baseline
+
+    def discard_changes(self):
+        try:
+            config = load_config()
+            self.notifications.set(f"{interval(config, 'notifications'):g}")
+            self.chats.set(f"{interval(config, 'chats') / 60:g}")
+            self.idle.set(f"{float(config.get('idle_seconds_before_actions', 30)) / 60:g}")
+            self.timing_baseline = self._timing_values()
+            self.saved_away = bool(config.get('away_mode', False))
+            self.feedback.set('')
+            return True
+        except (OSError, ValueError) as exc:
+            self.feedback.set(str(exc))
+            return False
+
+    def may_leave(self):
+        return resolve_unsaved(self, dirty=self.is_dirty(), save=self.save, discard=self.discard_changes)
 
     def save(self):
         try:
             config = save_settings(self.notifications.get(), self.chats.get(), self.away.get(), self.idle.get())
+            self.timing_baseline = self._timing_values()
+            self.saved_away = bool(config.get('away_mode', False))
             self.feedback.set("Tempi aggiornati.")
             self.on_saved(config)
+            return True
         except (ValueError, OSError) as exc:
             self.feedback.set(str(exc))
+            return False
+
+    def save_away(self):
+        """Persist this immediate switch without saving pending timing edits."""
+        try:
+            config = load_config()
+            config['away_mode'] = bool(self.away.get())
+            from sentinel_launcher import atomic_json
+            atomic_json(ROOT / 'approval-config.json', config)
+            self.saved_away = bool(config['away_mode'])
+            self.feedback.set('Risposta automatica aggiornata.')
+            self.on_saved(config)
+            return True
+        except (OSError, ValueError) as exc:
+            self.away.set(self.saved_away)
+            self.feedback.set(str(exc))
+            return False
 
     def save_apps(self):
         try:

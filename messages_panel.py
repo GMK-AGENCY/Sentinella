@@ -2,6 +2,7 @@ from runtime_paths import command
 """Sentinella's editable timers. UI callbacks never wait for desktop scans."""
 import json
 import queue
+import sqlite3
 import subprocess
 import threading
 import time
@@ -14,7 +15,8 @@ from automation_policy import load_config, action_block_reason
 from switch_control import Switch
 from chat_catalog import filter_chats, project_name, state_name
 from schedule_display import schedule_display, clock_label
-from ui_components import AutoScrollbar
+from ui_components import AutoScrollbar, TreeRowActions
+from unsaved_changes import resolve_unsaved
 
 
 class MessagesPanel(ttk.Frame):
@@ -33,10 +35,10 @@ class MessagesPanel(ttk.Frame):
         self.split=ttk.Panedwindow(self.list_view,orient='vertical');self.split.pack(fill='both',expand=True)
         listing=ttk.Frame(self.split);self.split.add(listing,weight=1)
         listing.columnconfigure(0,weight=1);listing.rowconfigure(0,weight=1)
-        self.job_list=ttk.Treeview(listing,columns=('action','title','state','next','last'),show='headings',height=3,selectmode='browse')
-        for col,label,width in [('action','',48),('title','Destinatario',205),('state','Stato',155),('next','Prossima attività',190),('last','Ultima consegna',130)]:
+        self.job_list=ttk.Treeview(listing,columns=('title','state','next','last','toggle','delete'),show='headings',height=3,selectmode='browse')
+        for col,label,width in [('title','Destinatario',195),('state','Stato',135),('next','Prossima attività',175),('last','Ultima consegna',120),('toggle','',112),('delete','',38)]:
             self.job_list.heading(col,text=label,anchor='w')
-            self.job_list.column(col,width=width,minwidth=45 if col=='action' else 70,anchor='center' if col=='action' else 'w',stretch=col!='action')
+            self.job_list.column(col,width=width,minwidth=width if col in {'toggle','delete'} else 70,anchor='w',stretch=col not in {'toggle','delete'})
         self.job_list.grid(row=0,column=0,sticky='nsew')
         for orient,axis,r,c,sticky in [('vertical','y',0,1,'ns'),('horizontal','x',1,0,'ew')]:
             bar=AutoScrollbar(listing,orient=orient,command=getattr(self.job_list,axis+'view'));bar.grid(row=r,column=c,sticky=sticky)
@@ -44,7 +46,9 @@ class MessagesPanel(ttk.Frame):
         self.job_list.tag_configure('In pausa',foreground='#697386')
         self.job_list.bind('<<TreeviewSelect>>',self.choose_job)
         self.job_list.bind('<Double-1>',lambda _event:self.edit_selected())
-        self.job_list.bind('<Button-1>',self.click_job)
+        self.row_actions=TreeRowActions(self.job_list,on_toggle=self.toggle_job_id,on_delete=self.delete_job_id,
+                                      is_paused=lambda job_id:not self.job_enabled.get(job_id,False))
+        self.job_enabled={}
         self.inline_host=ttk.Frame(self.split,padding=(0,10,0,0));self.split.add(self.inline_host,weight=4)
         self.inline_hint=ttk.Label(self.inline_host,text='Seleziona una programmazione per modificarla qui.',style='Muted.TLabel')
         self.inline_hint.pack(anchor='w',pady=12)
@@ -58,7 +62,7 @@ class MessagesPanel(ttk.Frame):
         self.pick_page=ttk.Frame(self.editor)
         filters=ttk.Frame(self.pick_page);filters.pack(fill='x',pady=(0,8))
         self.search=tk.StringVar();self.app_filter=tk.StringVar(value='Tutte');self.project_filter=tk.StringVar(value='Tutti')
-        self.state_filter=tk.StringVar(value='Tutti');self.period_filter=tk.StringVar(value='Ultimi 7 giorni')
+        self.state_filter=tk.StringVar(value='Tutti');self.period_filter=tk.StringVar(value='Ultime 24 ore')
         def field(col,label,weight):
             filters.columnconfigure(col,weight=weight)
             frame=ttk.Frame(filters);frame.grid(row=0,column=col,sticky='ew',padx=(0,8 if col<4 else 0))
@@ -96,21 +100,24 @@ class MessagesPanel(ttk.Frame):
         self.message.insert('1.0',DEFAULT_MESSAGE)
         scroll=AutoScrollbar(composer,orient='vertical',command=self.message.yview);self.message.configure(yscrollcommand=scroll.set)
         scroll.pack(side='right',fill='y');self.message.pack(side='left',fill='both',expand=True)
-        timing=ttk.Frame(self.write_page);timing.pack(fill='x',pady=(8,0))
         self.minutes=tk.StringVar(value='15');self.repeat=tk.BooleanVar(value=True);self.send_when_active=tk.BooleanVar(value=False);self.send_when_present=tk.BooleanVar(value=False)
-        ttk.Label(timing,text='Frequenza').pack(side='left',padx=(0,10))
-        ttk.Combobox(timing,textvariable=self.minutes,values=(5,10,15,30,60),width=7).pack(side='left');ttk.Label(timing,text='minuti').pack(side='left',padx=8)
-        options=ttk.Frame(self.write_page);options.pack(fill='x',pady=(4,0))
+        options=ttk.Frame(self.write_page);options.pack(fill='x',pady=(12,2));self.option_columns=options
+        for col in range(4):options.columnconfigure(col,weight=1,uniform='options')
+        timing=ttk.Frame(options);timing.grid(row=0,column=0,sticky='nw',padx=(0,12))
+        ttk.Label(timing,text='Frequenza',style='Muted.TLabel').pack(anchor='w',pady=(0,5))
+        frequency=ttk.Frame(timing);frequency.pack(anchor='w')
+        ttk.Combobox(frequency,textvariable=self.minutes,values=(5,10,15,30,60),width=5).pack(side='left')
+        ttk.Label(frequency,text='minuti',style='Muted.TLabel').pack(side='left',padx=(6,0))
         for col,(label,var,hint) in enumerate([
             ('Ripeti nel tempo',self.repeat,'Acceso: ripete il messaggio all’intervallo scelto. Spento: invia una sola volta.'),
             ('Invia anche mentre la chat lavora',self.send_when_active,'Acceso: consente l’invio o l’accodamento mentre la chat lavora. Spento: aspetta che sia libera.'),
-            ('Invia anche mentre uso il PC',self.send_when_present,'Acceso: consente l’invio nativo senza prendere il focus. Spento: attende l’inattività. La digitazione e le bozze restano protette.')]):
-            options.columnconfigure(col,weight=1,uniform='options');Switch(options,text=label,variable=var,help_text=hint).grid(row=0,column=col,sticky='ew',padx=(0,10 if col<2 else 0),pady=2)
-        summary=ttk.Frame(self.write_page);summary.pack(fill='x',pady=(5,0));summary.columnconfigure(0,weight=3);summary.columnconfigure(1,weight=2)
+            ('Invia anche mentre uso il PC',self.send_when_present,'Acceso: consente l’invio nativo senza prendere il focus. Spento: attende l’inattività. La digitazione e le bozze restano protette.')],start=1):
+            switch=Switch(options,text=label,variable=var,help_text=hint)
+            switch.label.configure(wraplength=115)
+            switch.grid(row=0,column=col,sticky='ew',padx=(0,10 if col<3 else 0),pady=2)
+        # Summary values remain available to validation, without duplicating the
+        # selected row and its timer below the options.
         self.preview=tk.StringVar();self.recipient_summary=tk.StringVar()
-        self.preview_label=ttk.Label(summary,textvariable=self.preview,style='Muted.TLabel',wraplength=430);self.preview_label.grid(row=0,column=0,sticky='nw',padx=(0,12))
-        self.recipient_label=ttk.Label(summary,textvariable=self.recipient_summary,style='Muted.TLabel',wraplength=260);self.recipient_label.grid(row=0,column=1,sticky='nw')
-        summary.bind('<Configure>',lambda e:(self.preview_label.configure(wraplength=max(160,int(e.width*.6)-12)),self.recipient_label.configure(wraplength=max(120,int(e.width*.4)-8))),add='+')
         self.status_label=ttk.Label(self.write_page,textvariable=self.status,foreground='#a44324',wraplength=720)
         self.status_label.pack(fill='x',pady=(4,0))
         bar=ttk.Frame(self.write_page);bar.pack(fill='x',pady=(8,0));self.editor_actions=bar
@@ -132,12 +139,6 @@ class MessagesPanel(ttk.Frame):
     def show_status(self,*_):
         if self.status.get():self.status_label.pack(fill='x',pady=(4,0),before=self.editor_actions)
         else:self.status_label.pack_forget()
-
-    def click_job(self,event):
-        if self.job_list.identify_region(event.x,event.y)=='cell' and self.job_list.identify_column(event.x)=='#1':
-            job_id=self.job_list.identify_row(event.y)
-            if job_id:self.toggle_job_id(job_id)
-            return 'break'
 
     def show_editor(self):
         self.list_view.pack_forget()
@@ -172,7 +173,6 @@ class MessagesPanel(ttk.Frame):
         self.commit_button.configure(text='Salva modifiche')
         self.history_button.pack(side='right',padx=(0,8))
         self.composer_title.set('Messaggio · '+(self.target or {}).get('title',''))
-        self.recipient_label.grid_remove()
         self.update_preview()
 
     def show_list(self):
@@ -196,7 +196,8 @@ class MessagesPanel(ttk.Frame):
 
     def editor_back(self):
         if self.selected_job:self.show_inline()
-        else:self.show_pick() if self.editor_step == 2 else self.show_list()
+        elif self.editor_step == 2:self.show_pick()
+        elif self.may_leave():self.show_list()
 
     def next_step(self):
         if not self.targets:
@@ -214,9 +215,6 @@ class MessagesPanel(ttk.Frame):
         self.commit_button.configure(text='Attiva programmazione')
         self.history_button.pack_forget()
         self.composer_title.set('Messaggio')
-        self.recipient_label.grid()
-        names = "; ".join(f"{r['app'].title()} · {r['title']}" for r in self.targets)
-        self.recipient_summary.set(f"Destinatari ({len(self.targets)}): {names}")
         self.update_preview()
         self.status.set('')
 
@@ -275,12 +273,16 @@ class MessagesPanel(ttk.Frame):
         job = next((j for j in load_jobs() if j["id"] == selected[0]), None)
         if not job:
             return
-        if self.editor_baseline is not None and self.editor_signature()!=self.editor_baseline:
+        if self.is_dirty():
             if self.selected_job==job['id']:
                 self.show_inline();return
-            if not messagebox.askyesno('Modifiche non salvate','Scartare le modifiche nell’editor e aprire questa programmazione?',parent=self):
+            if not self.may_leave():
                 if self.selected_job in self.job_list.get_children():self.job_list.selection_set(self.selected_job)
-                return
+                return False
+        self.load_editor(job)
+        return True
+
+    def load_editor(self, job):
         self.selected_job = job["id"]
         self.targets = [job]
         self.target = job
@@ -397,9 +399,14 @@ class MessagesPanel(ttk.Frame):
         self.update_target_summary()
 
     def new(self):
-        if self.editor_baseline is not None and self.editor_signature()!=self.editor_baseline:
-            if not messagebox.askyesno('Nuova programmazione','Ci sono modifiche non salvate nell’editor. Scartarle e iniziare una nuova programmazione?',parent=self):return False
+        if not self.may_leave():return False
+        self.reset_editor()
+        self.show_editor()
+        return True
+
+    def reset_editor(self):
         self.selected_job = None
+        self.target = None
         self.job_list.selection_remove(self.job_list.selection())
         self.clear_targets()
         self.message.delete("1.0", "end")
@@ -408,19 +415,32 @@ class MessagesPanel(ttk.Frame):
         self.repeat.set(True)
         self.send_when_active.set(False)
         self.send_when_present.set(False)
-        self.status.set("Scegli le chat, poi premi Continua.")
+        self.status.set('')
         self.editor_baseline=self.editor_signature()
-        self.show_editor()
-        return True
 
     def editor_signature(self):
         return (self.message.get('1.0','end-1c'),self.minutes.get(),self.repeat.get(),self.send_when_active.get(),self.send_when_present.get(),tuple(sorted(self.identity(row) for row in self.targets)))
+
+    def is_dirty(self):
+        return self.editor_baseline is not None and self.editor_signature()!=self.editor_baseline
+
+    def discard_changes(self):
+        job=next((item for item in load_jobs() if item['id']==self.selected_job),None)
+        if job:self.load_editor(job)
+        else:
+            self.reset_editor()
+            self.show_list()
+
+    def may_leave(self):
+        return resolve_unsaved(self,dirty=self.is_dirty(),save=self.activate,discard=self.discard_changes)
 
     def activate(self):
         try:
             if not self.targets or any(row.get("ambiguous") for row in self.targets):
                 raise ValueError("Scegli almeno una chat senza nomi duplicati. Se il nome è duplicato, rinomina la chat nell’app e aggiorna l’elenco.")
             jobs = load_jobs()
+            if self.selected_job and not any(j['id']==self.selected_job for j in jobs):
+                raise ValueError('La programmazione è stata eliminata. Il testo resta nell’editor: crea una nuova programmazione per riutilizzarlo.')
             saved = []
             preserved_schedule = False
             for target in self.targets:
@@ -429,6 +449,8 @@ class MessagesPanel(ttk.Frame):
                 # Re-selecting a sidebar row must not erase its pinned thread
                 # identity, transport, or explicit send-while-active policy.
                 editing_existing=bool(previous and self.selected_job==previous['id'])
+                if editing_existing and target.get('version')!=previous.get('version'):
+                    raise ValueError('La programmazione è cambiata mentre la modificavi. Il testo resta nell’editor; ricarica la programmazione prima di salvare.')
                 job = {**(previous or {}), **target, "id": job_id, "version": str(uuid.uuid4()), "enabled": bool(previous.get('enabled')) if editing_existing else True, "activated_at": time.time(), "interval_seconds": float(self.minutes.get().replace(",", ".")) * 60, "message": self.message.get("1.0", "end-1c"), "repeat": self.repeat.get()}
                 if job["app"] == "codex":
                     if not job.get("thread_id"):
@@ -450,19 +472,34 @@ class MessagesPanel(ttk.Frame):
                 saved.append(job_id)
             save_jobs(jobs)
             self.selected_job = saved[0] if len(saved) == 1 else None
-            self.status.set('Modifiche salvate.' if preserved_schedule else 'Programmazione salvata.')
-            store = TimerStore(ROOT / "logs" / "messages.sqlite3")
-            try:
-                for item in jobs:
-                    if item["id"] in saved:
-                        store.prepare(item, time.time())
-            finally:
-                store.db.close()
-            self.render_jobs()
+            # The JSON commit is authoritative. A busy journal must not turn a
+            # successful file save into a false unsaved state or an exception.
+            if len(saved)==1:
+                self.target=next(j for j in jobs if j['id']==saved[0])
+                self.targets=[self.target]
             self.editor_baseline=self.editor_signature()
+            journal_error=None
+            try:
+                store = TimerStore(ROOT / "logs" / "messages.sqlite3")
+                try:
+                    for item in jobs:
+                        if item["id"] in saved:store.prepare(item, time.time())
+                finally:store.db.close()
+            except sqlite3.Error as exc:journal_error=str(exc)
+            self.loading_job=True
+            try:
+                self.render_jobs()
+                if len(saved)==1:self.job_list.selection_set(saved[0])
+            except sqlite3.Error as exc:journal_error=str(exc)
+            finally:self.loading_job=False
             self.show_list()
+            text='Modifiche salvate.' if preserved_schedule else 'Programmazione salvata.'
+            if journal_error:text+=' Registro non disponibile: il controllore riproverà il timer automaticamente. '+journal_error
+            self.status.set(text)
+            return True
         except (OSError, ValueError) as exc:
             self.status.set(str(exc))
+            return False
 
     def choose_job(self, _=None):
         if self.rendering_jobs or self.editor_visible or self.loading_job:return
@@ -490,7 +527,29 @@ class MessagesPanel(ttk.Frame):
             return
         self.job_list.selection_set(job_id)
         self.job_list.focus(job_id)
-        self.edit_selected()
+        return self.edit_selected()
+
+    def delete_job_id(self, job_id):
+        job=next((item for item in load_jobs() if item['id']==job_id),None)
+        if job is None:return False
+        if not messagebox.askyesno('Elimina programmazione',
+                f'Eliminare la programmazione per «{job["title"]}»?\n\n'
+                'Ferma gli invii futuri. Gli invii già avviati possono completarsi. '
+                'Il registro e le bozze nelle chat vengono conservati.',parent=self,default='no'):
+            return False
+        # Do not silently dispose of an edited message, including deletion of
+        # the selected job. Deleting another row leaves the editor untouched.
+        if self.selected_job==job_id and not self.may_leave():return False
+        try:
+            jobs=load_jobs()
+            save_jobs([item for item in jobs if item['id']!=job_id])
+            if self.selected_job==job_id:
+                self.reset_editor();self.show_list()
+            self.render_jobs()
+            return True
+        except (OSError,ValueError) as exc:
+            self.status.set(f'Eliminazione non riuscita: {exc}')
+            return False
 
     def set_enabled(self, enabled, job_ids=None):
         selected = job_ids if job_ids is not None else self.job_list.selection()
@@ -498,6 +557,7 @@ class MessagesPanel(ttk.Frame):
             self.status.set("Seleziona un messaggio nell'elenco")
             return
         jobs = load_jobs()
+        self.job_enabled={job['id']:bool(job.get('enabled')) for job in jobs}
         store = TimerStore(ROOT / 'logs/messages.sqlite3')
         try:
             for job in jobs:
@@ -519,6 +579,7 @@ class MessagesPanel(ttk.Frame):
     def render_jobs(self):
         self.last_render = time.monotonic()
         jobs = load_jobs()
+        self.job_enabled={job['id']:bool(job.get('enabled')) for job in jobs}
         store = TimerStore(ROOT / "logs" / "messages.sqlite3")
         states = {r["id"]: r for r in store.rows()}
         receipts={}
@@ -535,7 +596,7 @@ class MessagesPanel(ttk.Frame):
             display = schedule_display(job, states.get(job["id"]), config, now, waiting_reason)
             self.display_states[job["id"]] = display
             last=clock_label(receipts[job['id']],now) if job['id'] in receipts else display['last_sent']
-            values = ('Ⅱ' if job.get('enabled') else '▶', job["title"], display["status"], display["next_precise"], last)
+            values = (job["title"], display["status"], display["next_precise"], last, '', '')
             if job["id"] in existing:
                 if tuple(self.job_list.item(job["id"], "values")) != values:
                     self.job_list.item(job["id"], values=values, tags=(display["activation"],))
@@ -545,6 +606,7 @@ class MessagesPanel(ttk.Frame):
         for key in existing:
             self.job_list.delete(key)
         self.rendering_jobs=False
+        self.row_actions.refresh()
         self.choose_job()
 
     def poll(self):

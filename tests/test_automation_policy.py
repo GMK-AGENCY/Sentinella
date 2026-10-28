@@ -55,7 +55,7 @@ class PolicyTests(unittest.TestCase):
         old={'id':'one','version':'v1','activated_at':100,'app':'claude','title':'Test','group':'Project',
              'enabled':True,'message':'hello','repeat':True,'interval_seconds':900,'send_when_active':False}
         view=SimpleNamespace(targets=[old],minutes=Mock(),message=Mock(),repeat=Mock(),send_when_active=Mock(),
-                             send_when_present=Mock(),status=Mock(),render_jobs=Mock(),show_list=Mock(), selected_job=None, editor_signature=Mock(return_value=()))
+                             send_when_present=Mock(),status=Mock(),render_jobs=Mock(),show_list=Mock(), selected_job=None, editor_signature=Mock(return_value=()), job_list=Mock())
         view.minutes.get.return_value='15';view.message.get.return_value='hello';view.repeat.get.return_value=True
         view.send_when_active.get.return_value=True;view.send_when_present.get.return_value=True
         with patch('messages_panel.load_jobs',return_value=[old]),patch('messages_panel.save_jobs') as save, \
@@ -89,7 +89,7 @@ class PolicyTests(unittest.TestCase):
 
     def test_send_while_active_is_saved_for_both_apps(self):
         targets = [{"app": app, "title": "Test " + app, "group": "Recenti", "thread_id": "pinned"} for app in ("codex", "claude")]
-        view = SimpleNamespace(targets=targets, minutes=Mock(), message=Mock(), repeat=Mock(), send_when_active=Mock(), status=Mock(), render_jobs=Mock(), show_list=Mock(), selected_job=None, editor_signature=Mock(return_value=()))
+        view = SimpleNamespace(targets=targets, minutes=Mock(), message=Mock(), repeat=Mock(), send_when_active=Mock(), status=Mock(), render_jobs=Mock(), show_list=Mock(), selected_job=None, editor_signature=Mock(return_value=()), job_list=Mock())
         view.minutes.get.return_value = "30"
         view.message.get.return_value = "Saved literal"
         view.repeat.get.return_value = True
@@ -254,7 +254,7 @@ class PolicyTests(unittest.TestCase):
     def test_reselecting_sidebar_row_preserves_existing_delivery_identity_and_policy(self):
         existing = {"id": "regia", "version": "old", "app": "codex", "title": "Regia", "group": "Recenti", "thread_id": "pinned-thread", "transport": "codex_app", "send_when_active": True}
         target = {"app": "codex", "title": "Regia", "group": "Recenti"}
-        view = SimpleNamespace(targets=[target], minutes=Mock(), message=Mock(), repeat=Mock(), status=Mock(), render_jobs=Mock(), show_list=Mock(), selected_job=None, editor_signature=Mock(return_value=()))
+        view = SimpleNamespace(targets=[target], minutes=Mock(), message=Mock(), repeat=Mock(), status=Mock(), render_jobs=Mock(), show_list=Mock(), selected_job=None, editor_signature=Mock(return_value=()), job_list=Mock())
         view.minutes.get.return_value = "30"
         view.message.get.return_value = "Literal user message"
         view.repeat.get.return_value = True
@@ -299,7 +299,7 @@ class PolicyTests(unittest.TestCase):
 
     def test_multiple_selected_chats_create_independent_timers(self):
         targets = [{"app": app, "title": title, "group": "Recenti", "thread_id": "test-thread"} for app, title in (("codex", "Regia"), ("claude", "Lavoro"))]
-        view = SimpleNamespace(targets=targets, minutes=Mock(), message=Mock(), repeat=Mock(), status=Mock(), render_jobs=Mock(), show_list=Mock(), selected_job=None, editor_signature=Mock(return_value=()))
+        view = SimpleNamespace(targets=targets, minutes=Mock(), message=Mock(), repeat=Mock(), status=Mock(), render_jobs=Mock(), show_list=Mock(), selected_job=None, editor_signature=Mock(return_value=()), job_list=Mock())
         view.minutes.get.return_value = "15"
         view.message.get.return_value = "Continua con il lavoro autorizzato."
         view.repeat.get.return_value = True

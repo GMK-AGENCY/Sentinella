@@ -16,6 +16,7 @@ import unittest
 from unittest.mock import patch
 
 import automation_policy
+import approvals_panel
 from config_store import ensure_local_files
 import message_engine
 import message_library
@@ -45,10 +46,14 @@ class WorkflowQA(unittest.TestCase):
             patch.object(messages_panel, "ROOT", self.profile),
             patch.object(workspace_ui, "ROOT", self.profile),
             patch.object(settings_panel, "ROOT", self.profile),
+            patch.object(approvals_panel, "ROOT", self.profile),
             patch("bounded_process.run_bounded", return_value=self.result([])),
         ]
         self.mocks = [p.start() for p in self.patches]
         self.native = self.mocks[-1]
+        self.dialog_patch=patch('unsaved_changes._choose_unsaved',return_value=None)
+        self.dialog_patch.start()
+        self.addCleanup(self.dialog_patch.stop)
         self.root = tk.Tk()
         self.root.withdraw()
         self.root.geometry("1040x790")
@@ -251,7 +256,7 @@ class WorkflowQA(unittest.TestCase):
         self.panel.message.delete("1.0", "end")
         self.panel.message.insert("1.0", "Bozza non salvata")
         self.panel.minutes.set("31")
-        with patch("messages_panel.messagebox.askyesno", return_value=False) as confirm:
+        with patch("unsaved_changes._choose_unsaved", return_value=None) as confirm:
             self.panel.new()
         self.assertTrue(confirm.called)
         self.assertEqual(self.panel.message.get("1.0", "end-1c"), "Bozza non salvata")
@@ -271,7 +276,7 @@ class WorkflowQA(unittest.TestCase):
         self.panel.message.delete("1.0", "end")
         self.panel.message.insert("1.0", "Bozza da proteggere")
         self.panel.job_list.selection_set(second["id"])
-        with patch("messages_panel.messagebox.askyesno", return_value=False) as confirm:
+        with patch("unsaved_changes._choose_unsaved", return_value=None) as confirm:
             self.panel.edit_selected()
         self.assertTrue(confirm.called)
         self.assertEqual(self.panel.selected_job, previous["id"])
@@ -340,6 +345,7 @@ class WorkflowQA(unittest.TestCase):
             for page, setup in ((self.panel, self.panel.show_pick),
                                 (self.panel, self.panel.next_step),
                                 (app.library_panel, lambda: None)):
+                self.panel.editor_baseline=self.panel.editor_signature()
                 app.notebook.select(page)
                 setup()
                 self.root.update()
@@ -382,7 +388,7 @@ class WorkflowQA(unittest.TestCase):
         panel._load(first)
         panel.text.insert("end", " WIP")
         panel.tree.selection_set(second["id"])
-        with patch("message_library.messagebox.askyesnocancel", return_value=None):
+        with patch("unsaved_changes._choose_unsaved", return_value=None):
             panel.select()
             panel.new()
         self.assertEqual(panel.selected_id, first["id"])

@@ -5,9 +5,37 @@ import unittest
 from unittest.mock import Mock, patch
 
 from question_desktop import inspect
+from message_templates import (AWAY_REPLY, DEFAULT_MESSAGE, AUTONOMOUS_CONTINUATION,
+                               PREVIOUS_AWAY_REPLY, PREVIOUS_DEFAULT_MESSAGE,
+                               LEGACY_AWAY_REPLIES, LEGACY_PERIODIC_MESSAGES, reply_is_replaceable)
 
 
 class QuestionReplyPolicyTests(unittest.TestCase):
+    def test_default_replies_continue_authorized_work_and_defer_only_dependent_action(self):
+        self.assertEqual(DEFAULT_MESSAGE,AUTONOMOUS_CONTINUATION)
+        self.assertIn('per quando rientra e ti scrive',AWAY_REPLY)
+        for reply in (AWAY_REPLY,DEFAULT_MESSAGE):
+            with self.subTest(reply=reply):
+                self.assertIn('utente è assente',reply)
+                self.assertIn('fino a completare il lavoro già autorizzato',reply)
+                self.assertIn('lascia sospesa soltanto l’attività che ne dipende',reply)
+                self.assertIn('attività indipendenti già autorizzate',reply)
+                self.assertIn('non aggirarli',reply)
+                self.assertIn('non attribuirti nuove autorizzazioni',reply)
+                self.assertIn('senza ampliare il perimetro',reply)
+                self.assertIn('verifica i risultati',reply)
+                for phrase in ('prima di procedere','proponi','attendi una risposta','domani'):
+                    self.assertNotIn(phrase,reply.casefold())
+
+    def test_historical_replies_remain_exact_candidates_without_replacing_custom_text(self):
+        self.assertIn(PREVIOUS_AWAY_REPLY,LEGACY_AWAY_REPLIES)
+        self.assertIn(PREVIOUS_DEFAULT_MESSAGE,LEGACY_PERIODIC_MESSAGES)
+        self.assertNotEqual(PREVIOUS_AWAY_REPLY,AWAY_REPLY)
+        self.assertNotEqual(PREVIOUS_DEFAULT_MESSAGE,DEFAULT_MESSAGE)
+        config={'away_reply':AWAY_REPLY,'legacy_away_replies':list(LEGACY_AWAY_REPLIES)}
+        self.assertTrue(reply_is_replaceable(PREVIOUS_AWAY_REPLY,config))
+        self.assertFalse(reply_is_replaceable('Il mio testo personalizzato',config))
+
     def test_off_leaves_question_untouched_on_drafts_then_sends_only_once(self):
         for app in ('codex', 'claude'):
             with self.subTest(app=app), tempfile.TemporaryDirectory() as folder:

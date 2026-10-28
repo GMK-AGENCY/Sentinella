@@ -10,7 +10,7 @@ import uuid
 import tkinter as tk
 from datetime import datetime
 
-from notification_core import Notification, Deduplicator, classify
+from notification_core import Notification, Deduplicator, classify, after_cleanup
 from service_recovery import ServiceRecovery, supervisor_stale
 
 from runtime_paths import data_root, command
@@ -24,6 +24,8 @@ class Monitor:
         self.queue = queue.Queue()
         self.dedup = Deduplicator()
         self.rows = {}
+        try:self.notifications_cleared_at=float(json.loads((LOGS/'notifications-cleared.json').read_text(encoding='utf-8'))['cleared_at'])
+        except (OSError,ValueError,TypeError,KeyError):self.notifications_cleared_at=0
         self.worker = None
         self.monitoring = True
         self.restarts = 0
@@ -241,6 +243,7 @@ class Monitor:
 
     def add(self, data):
         notification = Notification(**data)
+        if not after_cleanup(notification,getattr(self,'notifications_cleared_at',0)):return
         if not self.dedup.add(notification):
             return
         kind = classify(notification.title, notification.body)
@@ -364,6 +367,7 @@ class Monitor:
             self.show_details(f"{n.app} · {n.created} · origine: {n.source}\n{n.title}\n\n{n.body}")
 
     def close(self):
+        if hasattr(self,'may_close') and not self.may_close():return
         self.finish_gui_profile()
         from sentinel_launcher import atomic_json
         atomic_json(LOGS / "exit-intent.json", {"run_id": self.run_id, "pid": os.getpid(), "closed_at": time.time()})

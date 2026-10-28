@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import Mock, call, patch
 
 import app_icon
-from ui_components import AutoScrollbar, PlaceholderEntry
+from ui_components import AutoScrollbar, PlaceholderEntry, TreeRowActions, photo_icon
 
 
 class ProcessIdentityTests(unittest.TestCase):
@@ -65,6 +65,113 @@ class ProcessIdentityTests(unittest.TestCase):
 
 
 class UIComponentsTests(unittest.TestCase):
+    def action_tree(self, count=40):
+        host=ttk.Frame(self.root);host.pack(fill='both',expand=True)
+        ttk.Style(self.root).configure('ActionsTest.Treeview',rowheight=36)
+        tree=ttk.Treeview(host,columns=('title','last','toggle','delete'),show='headings',
+                          style='ActionsTest.Treeview',height=5)
+        for column,width in (('title',190),('last',100),('toggle',106),('delete',40)):
+            tree.column(column,width=width,minwidth=width,stretch=column=='title')
+        bar=AutoScrollbar(host,command=tree.yview);bar.pack(side='right',fill='y')
+        tree.pack(side='left',fill='both',expand=True)
+        observed=[]
+        def yscroll(first,last):
+            observed.append((first,last));bar.set(first,last)
+        tree.configure(yscrollcommand=yscroll)
+        paused={f'job-{i}':bool(i%2) for i in range(count)}
+        for iid in paused:tree.insert('','end',iid=iid,values=(iid,'12:30','',''))
+        toggle=Mock(side_effect=lambda key:paused.__setitem__(key,not paused[key]))
+        delete=Mock()
+        actions=TreeRowActions(tree,on_toggle=toggle,on_delete=delete,is_paused=paused.get)
+        self.layout()
+        return tree,actions,paused,toggle,delete,observed
+
+    def test_canonical_action_icons_are_native_and_font_independent(self):
+        for name in ('pause','play','trash'):
+            icon=photo_icon(self.root,name,size=20,color='#17243b')
+            self.assertEqual((icon.width(),icon.height()),(20,20))
+            self.assertTrue(icon.transparency_get(0,0))
+        self.assertFalse(photo_icon(self.root,'pause',20).transparency_get(5,8))
+        with self.assertRaises(ValueError):photo_icon(self.root,'unknown')
+        with self.assertRaises(ValueError):photo_icon(self.root,'play',size=4)
+
+    def test_row_actions_only_allocate_visible_rows_and_preserve_scroll_callbacks(self):
+        tree,actions,paused,toggle,delete,observed=self.action_tree(1000)
+        self.assertGreater(len(actions.buttons),0)
+        self.assertLessEqual(len(actions.buttons),self.root.winfo_height()//36+2)
+        before=set(actions.buttons)
+        self.assertGreater(len(observed),0)
+        tree.yview_moveto(1);self.layout()
+        self.assertIn('job-999',actions.buttons)
+        self.assertNotEqual(set(actions.buttons),before)
+        self.assertTrue(all(tree.bbox(key) for key in actions.buttons))
+        self.assertLessEqual(len(actions.buttons),self.root.winfo_height()//36+2)
+        self.assertIsNone(actions._pending)
+        previous=tree.yview()
+        self.assertEqual(actions._wheel(SimpleNamespace(delta=120,state=0)),'break')
+        self.layout()
+        self.assertLess(tree.yview()[0],previous[0])
+        toggle.assert_not_called();delete.assert_not_called()
+
+    def test_row_buttons_use_stable_id_fresh_state_and_canonical_images(self):
+        tree,actions,paused,toggle,delete,_=self.action_tree()
+        tree.selection_set('job-3');self.layout()
+        button=actions.buttons['job-0']['toggle']
+        self.assertEqual(button.cget('text'),'Pausa')
+        button.invoke();self.layout()
+        toggle.assert_called_once_with('job-0')
+        self.assertEqual(button.cget('text'),'Riprendi')
+        self.assertEqual(str(button.cget('image')[0]),str(actions.icons['play']))
+        self.assertEqual(tree.selection(),('job-3',))
+        self.assertEqual(actions._invoke_key('job-0','delete'),'break')
+        delete.assert_called_once_with('job-0')
+        self.assertEqual(str(actions.buttons['job-0']['delete'].cget('compound')),'none')
+
+    def test_stale_position_removed_job_and_deleted_row_cannot_invoke_actions(self):
+        tree,actions,paused,toggle,delete,_=self.action_tree()
+        button=actions.buttons['job-0']['delete']
+        tree.move('job-0','','end')
+        button.invoke()  # Event arrived before the coalesced layout refresh.
+        delete.assert_not_called();self.layout()
+        current=next(iter(actions.buttons))
+        paused.pop(current)
+        actions.buttons[current]['toggle'].invoke()
+        toggle.assert_not_called();self.layout()
+        self.assertNotIn(current,actions.buttons)
+        current=next(iter(actions.buttons))
+        button=actions.buttons[current]['delete']
+        tree.delete(current);button.invoke()
+        delete.assert_not_called();self.layout()
+
+    def test_actions_track_resize_horizontal_scroll_and_unmap_without_polling(self):
+        tree,actions,paused,toggle,delete,_=self.action_tree()
+        tree.column('title',width=800,minwidth=800,stretch=False)
+        self.layout()
+        self.assertTrue(all(row['toggle'].winfo_manager()=='' for row in actions.buttons.values()))
+        tree.xview_moveto(1);self.layout()
+        visible=[row for row in actions.buttons.values() if row['delete'].winfo_manager()=='place']
+        self.assertTrue(visible)
+        for row in visible:
+            self.assertLess(row['toggle'].winfo_x(),row['delete'].winfo_x())
+            self.assertLessEqual(row['delete'].winfo_x()+row['delete'].winfo_width(),tree.winfo_width())
+        self.root.geometry('620x420');self.layout()
+        self.assertIsNone(actions._pending)
+        self.root.withdraw();self.root.update()
+        self.assertEqual(actions.buttons,{})
+        self.layout();self.assertTrue(actions.buttons)
+        toggle.assert_not_called();delete.assert_not_called()
+
+    def test_action_destroy_restores_original_scroll_commands_and_keeps_tree_usable(self):
+        tree,actions,paused,toggle,delete,observed=self.action_tree()
+        original=dict(actions._scroll_originals)
+        actions.destroy();self.layout()
+        self.assertEqual(actions.buttons,{})
+        self.assertEqual(str(tree.cget('yscrollcommand')),original['y'])
+        count=len(observed);tree.yview_moveto(1);self.layout()
+        self.assertGreater(len(observed),count)
+        self.assertIsNone(actions._pending)
+        actions.destroy()
+
     def test_placeholder_is_visual_and_never_enters_search_value(self):
         value=tk.StringVar()
         entry=PlaceholderEntry(self.root,textvariable=value,placeholder='Cerca nei messaggi')

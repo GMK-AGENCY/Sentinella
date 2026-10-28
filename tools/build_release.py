@@ -12,7 +12,7 @@ automation_policy bounded_process chat_catalog chat_desktop claude_delivery code
 config_store dashboard_model default_message_templates desktop_identity file_recovery loop_diagnostics message_engine message_library message_templates message_worker
 messages_panel notification_backend notification_core notification_watch performance_check
 polling_policy question_desktop question_supervisor schedule_display sentinel_launcher service_recovery settings_panel startup_manager
-switch_control runtime_paths sentinella_app release_smoke ui_components workspace_ui""".split()
+switch_control runtime_paths sentinella_app release_smoke ui_components unsaved_changes history_cleanup workspace_ui""".split()
 
 
 def public_files(root=ROOT):

@@ -1,8 +1,18 @@
 import unittest
-from notification_core import Notification, Deduplicator, classify, is_target
+from notification_core import Notification, Deduplicator, classify, is_target, after_cleanup
 
 
 class DetectionTests(unittest.TestCase):
+    def test_cleanup_cutoff_survives_restart_without_hiding_new_toasts(self):
+        from datetime import datetime
+        cutoff=datetime.fromisoformat('2026-10-28T12:00:00+00:00').timestamp()
+        values=dict(app='Claude',app_id='claude',notification_id=1,title='Chat',body='Notifica')
+        for created,expected in [('2026-10-28T11:59:59Z',False),('2026-10-28T14:00:00+02:00',False),
+                                 ('2026-10-28T12:00:01Z',True),('invalid-date',True)]:
+            with self.subTest(created=created):
+                self.assertEqual(after_cleanup(Notification(**values,created=created),cutoff),expected)
+        self.assertTrue(after_cleanup(Notification(**values,created='2026-10-28T11:00:00Z'),0))
+
     def test_windows_sender_codex_despite_chatgpt_label(self):
         self.assertTrue(is_target("ChatGPT", "OpenAI.Codex_2p2nqsd0c76g0!App"))
 

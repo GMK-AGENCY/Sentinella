@@ -67,7 +67,7 @@ class Switch(ttk.Frame):
         # Labels wrap inside their actual card, including at minimum width.
         # No canvas or indicator geometry changes when a line wraps.
         if event.width > 60:
-            self.label.configure(wraplength=max(180, event.width - 50))
+            self.label.configure(wraplength=max(60, event.width - 50))
 
     def cleanup(self, event):
         if event.widget is self:

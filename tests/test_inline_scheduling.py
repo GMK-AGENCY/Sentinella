@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import automation_policy
+import approvals_panel
 from config_store import ensure_local_files
 import message_engine
 import messages_panel
@@ -37,11 +38,13 @@ class InlineSchedulingQA(unittest.TestCase):
             patch.object(messages_panel, "action_block_reason", return_value=""),
             patch("bounded_process.run_bounded", side_effect=AssertionError("Native adapter forbidden in inline QA")),
             patch("messages_panel.messagebox.askyesno", return_value=False),
-            patch("message_library.messagebox.askyesnocancel", return_value=None),
+            patch("unsaved_changes._choose_unsaved", return_value=None),
+            patch.object(approvals_panel, "ROOT", self.profile),
         ]
         self.mocks = [patcher.start() for patcher in self.patchers]
         self.native = self.mocks[8]
         self.confirm = self.mocks[9]
+        self.unsaved = self.mocks[10]
         for patcher in self.patchers:
             self.addCleanup(patcher.stop)
         ensure_local_files(self.profile)
@@ -141,7 +144,7 @@ class InlineSchedulingQA(unittest.TestCase):
         before = self.panel.editor_signature()
         self.panel.job_list.selection_set(second["id"])
         self.flush_events()
-        self.assertTrue(self.confirm.called)
+        self.assertTrue(self.unsaved.called)
         self.assertEqual(self.panel.job_list.selection(), (first["id"],))
         self.assertEqual(self.panel.selected_job, first["id"])
         self.assertEqual(self.panel.editor_signature(), before)
@@ -150,7 +153,7 @@ class InlineSchedulingQA(unittest.TestCase):
         first, second = self.seed()
         self.open_job(first["id"])
         self.panel.message.insert("end", " WIP")
-        self.confirm.return_value = True
+        self.unsaved.return_value = "discard"
         self.open_job(second["id"])
         self.assertEqual(self.panel.targets, [second])
         self.assertEqual(self.panel.message.get("1.0", "end-1c"), second["message"])
@@ -252,7 +255,7 @@ class InlineSchedulingQA(unittest.TestCase):
         self.assertFalse(self.panel.new())
         self.assertEqual(self.panel.editor_signature(), signature)
         self.assertFalse(self.panel.editor_visible)
-        self.confirm.return_value = True
+        self.unsaved.return_value = "discard"
         with patch.object(self.panel, "refresh") as refresh:
             self.assertTrue(self.panel.new())
         refresh.assert_called_once_with()

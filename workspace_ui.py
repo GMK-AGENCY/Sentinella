@@ -2,9 +2,11 @@
 from datetime import datetime
 import json
 import os
+import queue
+import threading
 import time
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 
 from app_version import VERSION
 from automation_policy import ROOT, app_enabled, load_config
@@ -12,13 +14,66 @@ from message_engine import TimerStore, load_jobs
 from polling_policy import interval
 from startup_manager import startup_enabled
 from switch_control import Switch, Tooltip
-from ui_components import AutoScrollbar
+from ui_components import AutoScrollbar, photo_icon
 
 BG = "#f3f5f9"
 INK = "#17243b"
 MUTED = "#56657a"
 BLUE = "#2563eb"
 NAV = "#111d32"
+
+
+class PageNavigation:
+    """Guard every route, including keyboard/programmatic notebook changes."""
+
+    def __init__(self, notebook, pages, on_changed):
+        self.notebook=notebook
+        self.pages={str(page):page for page in pages}
+        self.current=notebook.select()
+        self.on_changed=on_changed
+        self.busy=False
+        notebook.bind('<<NotebookTabChanged>>',self.changed)
+
+    def select(self, page):
+        target=str(page)
+        if target==self.current:
+            self.notebook.select(page)
+            return True
+        if self.busy:return False
+        self.busy=True
+        try:
+            source=self.pages.get(self.current)
+            if source is not None and hasattr(source,'may_leave') and not source.may_leave():
+                return False
+            self.current=target
+            self.notebook.select(page)
+            self.on_changed()
+            return True
+        finally:self.busy=False
+
+    def changed(self, _event=None):
+        if self.busy:return
+        selected=self.notebook.select()
+        if selected!=self.current:
+            # Show the editor while asking about its edits, not the new page.
+            self.notebook.select(self.current)
+            self.select(self.pages[selected])
+        else:self.on_changed()
+
+    def may_close(self):
+        if self.busy:return False
+        self.busy=True
+        try:
+            ordered=[self.current,*[key for key in self.pages if key!=self.current]]
+            for key in ordered:
+                page=self.pages[key]
+                if hasattr(page,'is_dirty') and page.is_dirty():
+                    self.current=key
+                    self.notebook.select(page)
+                    self.on_changed()
+                    if not page.may_leave():return False
+            return True
+        finally:self.busy=False
 
 
 def title(parent, text, subtitle=None):
@@ -87,14 +142,12 @@ def build_operational_overview(app, overview, history_for_job):
     """The essential list owns all dashboard presentation and on-demand detail."""
     from agenda_view import AgendaView
     def edit(job_id):
-        app.messages_panel.edit_job_id(job_id)
-        app.notebook.select(app.messages_panel)
+        if app.navigate_to(app.messages_panel):app.messages_panel.edit_job_id(job_id)
     def toggle(job_id):
         app.messages_panel.toggle_job_id(job_id)
         update_insights(app,load_config())
     def new():
-        app.messages_panel.new()
-        app.notebook.select(app.messages_panel)
+        if app.navigate_to(app.messages_panel):app.messages_panel.new()
     app.dashboard_agenda=AgendaView(overview,edit,toggle,history_for_job,new)
     app.dashboard_agenda.pack(fill='both',expand=True)
 
@@ -105,6 +158,25 @@ def history_event_label(row):
     return row['event']
 
 
+def start_cleanup(parent, button, operation, on_done):
+    """Keep large journals off the UI loop; completion returns on the Tk thread."""
+    if button.instate(['disabled']):return
+    results=queue.Queue()
+    button.configure(state='disabled',text='Pulizia…')
+    def run():
+        try:results.put(operation())
+        except Exception as exc:results.put({'complete':False,'errors':[str(exc)]})
+    def poll():
+        if not parent.winfo_exists():return
+        try:result=results.get_nowait()
+        except queue.Empty:
+            parent.after(100,poll);return
+        button.configure(state='normal',text='Elimina tutto')
+        on_done(result)
+    threading.Thread(target=run,daemon=True).start()
+    parent.after(100,poll)
+
+
 class HistoryPanel(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent, padding=20)
@@ -112,10 +184,14 @@ class HistoryPanel(ttk.Frame):
         self.outcome = tk.StringVar(value="Tutti gli esiti")
         self.period = tk.StringVar(value="Tutto lo storico")
         filters = ttk.Frame(self); filters.pack(fill="x", pady=(0, 14))
-        self.targets = ttk.Combobox(filters, textvariable=self.target, state="readonly", width=27)
-        self.targets.pack(side="left", padx=(0, 10))
-        ttk.Combobox(filters, textvariable=self.outcome, state="readonly", width=24, values=("Tutti gli esiti", "Consegne verificate", "Eventi di verifica", "Attese e preparazione")).pack(side="left", padx=(0, 10))
-        ttk.Combobox(filters, textvariable=self.period, state="readonly", width=20, values=("Tutto lo storico", "Ultime 24 ore", "Ultimi 7 giorni")).pack(side="left")
+        for col in range(3):filters.columnconfigure(col,weight=1)
+        self.targets = ttk.Combobox(filters, textvariable=self.target, state="readonly", width=1)
+        self.targets.grid(row=0,column=0,sticky='ew',padx=(0,10))
+        ttk.Combobox(filters, textvariable=self.outcome, state="readonly", width=1, values=("Tutti gli esiti", "Consegne verificate", "Eventi di verifica", "Attese e preparazione")).grid(row=0,column=1,sticky='ew',padx=(0,10))
+        ttk.Combobox(filters, textvariable=self.period, state="readonly", width=1, values=("Tutto lo storico", "Ultime 24 ore", "Ultimi 7 giorni")).grid(row=0,column=2,sticky='ew',padx=(0,14))
+        self.delete_icon=photo_icon(self,'trash',color='white')
+        self.delete_all_button=ttk.Button(filters,text='Elimina tutto',image=self.delete_icon,compound='left',style='Primary.TButton',command=self.clear_all)
+        self.delete_all_button.grid(row=0,column=3,sticky='e')
         self.count = tk.StringVar()
         ttk.Label(self, textvariable=self.count, style="Muted.TLabel").pack(anchor="w", pady=(0, 10))
         self.split = ttk.Panedwindow(self, orient="vertical"); self.split.pack(fill="both", expand=True)
@@ -130,6 +206,22 @@ class HistoryPanel(ttk.Frame):
         for var in (self.target, self.outcome, self.period):
             var.trace_add("write", lambda *_: self.refresh())
         self.refresh(); self.after(5000, self.poll)
+
+    def clear_all(self):
+        if not messagebox.askyesno('Elimina tutto il registro invii',
+                'Eliminare tutti gli eventi del registro invii, anche quelli esclusi dai filtri, '
+                'e i file di ricevuta esportati già confermati?\n\n'
+                'Programmazioni, scadenze e bozze restano. Le prenotazioni e le prove operative '
+                'necessarie a evitare duplicati vengono conservate. La pulizia è definitiva.',parent=self,default='no'):
+            return False
+        from history_cleanup import clear_delivery_history
+        def done(result):
+            self.signature=None
+            self.refresh()
+            self.count.set('Registro invii e file associati eliminati.' if result.get('complete') else
+                           'Pulizia incompleta: '+'; '.join(result.get('errors',[])))
+        start_cleanup(self,self.delete_all_button,lambda:clear_delivery_history(ROOT),done)
+        return True
 
     def open_job(self, job_id):
         self.refresh()
@@ -226,7 +318,7 @@ def build_workspace(app):
     style.configure('TEntry', padding=8, fieldbackground='#f7f9fc')
     style.configure('TCombobox', padding=7, fieldbackground='#f7f9fc')
     sidebar = tk.Frame(root, bg=NAV, width=192); sidebar.pack(side='left', fill='y'); sidebar.pack_propagate(False)
-    tk.Label(sidebar, text='S  Sentinella', bg=NAV, fg='white', font=('Segoe UI', 18, 'bold')).pack(anchor='w', padx=20, pady=(28, 6))
+    tk.Label(sidebar, text='Sentinella', bg=NAV, fg='white', font=('Segoe UI', 18, 'bold')).pack(anchor='w', padx=20, pady=(28, 6))
     tk.Label(sidebar, text='SESSION WORKSPACE', bg=NAV, fg='#8ea2c1', font=('Segoe UI', 8, 'bold')).pack(anchor='w', padx=22, pady=(0, 34))
     main = ttk.Frame(root, style='Surface.TFrame', padding=(24, 22)); main.pack(side='left', fill='both', expand=True)
     header = ttk.Frame(main, style='Surface.TFrame'); header.pack(fill='x', pady=(0, 18))
@@ -256,14 +348,12 @@ def build_workspace(app):
     app.messages_panel = MessagesPanel(app.notebook)
     from message_library import MessageLibraryPanel
     def use_library_text(text):
-        if app.messages_panel.use_saved_message(text):
-            app.notebook.select(app.messages_panel)
-            return True
-        return False
+        if not app.messages_panel.use_saved_message(text):return False
+        return app.navigate_to(app.messages_panel)
     app.library_panel = MessageLibraryPanel(app.notebook, use_library_text)
     app.history_panel = HistoryPanel(app.notebook)
     notifications = ttk.Frame(app.notebook, padding=20)
-    settings = SettingsPanel(app.notebook, app.refresh_dashboard, lambda: os.startfile(str(ROOT / 'logs')), app.restart_reader)
+    settings = app.settings_panel = SettingsPanel(app.notebook, app.refresh_dashboard, lambda: os.startfile(str(ROOT / 'logs')), app.restart_reader)
     pages = [(overview, 'Panoramica', 'Le tue programmazioni, a colpo d’occhio.'),
              (app.messages_panel, 'Programmazioni', 'Destinatari, frequenze e comportamento degli invii'),
              (app.library_panel, 'Messaggi salvati', 'Organizza i messaggi in raccolte e riutilizzali nelle programmazioni. Il salvataggio non avvia invii.'),
@@ -273,7 +363,7 @@ def build_workspace(app):
     buttons = []
     for index, (page, label, _) in enumerate(pages):
         app.notebook.add(page, text=label)
-        button = tk.Button(sidebar, text=label, anchor='w', bg=NAV, fg='#bac8dc', activebackground='#253957', activeforeground='white', relief='flat', bd=0, padx=20, pady=14, font=('Segoe UI', 11), cursor='hand2', takefocus=True, command=lambda p=page: app.notebook.select(p))
+        button = tk.Button(sidebar, text=label, anchor='w', bg=NAV, fg='#bac8dc', activebackground='#253957', activeforeground='white', relief='flat', bd=0, padx=20, pady=14, font=('Segoe UI', 11), cursor='hand2', takefocus=True, command=lambda p=page: app.navigate_to(p))
         button.pack(fill='x', padx=10, pady=3); buttons.append(button)
     def navigate(_=None):
         index = app.notebook.index(app.notebook.select())
@@ -282,15 +372,20 @@ def build_workspace(app):
             button.configure(bg='#253957' if i==index else NAV, fg='white' if i==index else '#bac8dc')
         if pages[index][0] is app.history_panel:
             app.history_panel.refresh()
-    app.notebook.bind('<<NotebookTabChanged>>', navigate)
+    app.navigation=PageNavigation(app.notebook,[row[0] for row in pages],navigate)
+    app.navigate_to=app.navigation.select
+    app.may_close=app.navigation.may_close
     def history_for_job(job_id=None):
-        app.history_panel.open_job(job_id)
-        app.notebook.select(app.history_panel)
+        if app.navigate_to(app.history_panel):app.history_panel.open_job(job_id)
     app.messages_panel.history_callback = history_for_job
     def save_editor_text():
+        from message_library import save_text_as_message
         text = app.messages_panel.message.get('1.0', 'end-1c')
-        if app.library_panel.new_from_text(text):
-            app.notebook.select(app.library_panel)
+        def saved(_item):
+            app.library_panel.refresh(guard=False)
+            app.messages_panel.status.set('Messaggio salvato nella raccolta. Le modifiche alla programmazione restano da salvare.')
+        try:save_text_as_message(app.messages_panel,text,on_saved=saved)
+        except (OSError,ValueError) as exc:app.messages_panel.status.set(str(exc))
     app.messages_panel.library_callback = save_editor_text
     bottom = tk.Frame(sidebar, bg=NAV); bottom.pack(side='bottom', fill='x', padx=22, pady=24)
     tk.Label(bottom, text=f'VERSIONE {VERSION}', bg=NAV, fg='#8ea2c1', font=('Segoe UI', 9, 'bold')).pack(anchor='w')
@@ -305,6 +400,32 @@ def build_workspace(app):
     ttk.Label(filters,text='Cerca').pack(side='left',padx=(0,8))
     ttk.Entry(filters,textvariable=app.notification_query,width=28).pack(side='left',fill='x',expand=True,padx=(0,12))
     ttk.Combobox(filters,textvariable=app.notification_kind,state='readonly',width=24,values=('Tutti gli eventi','Domande e attese','Consensi','Altri eventi')).pack(side='left')
+    app.notification_delete_icon=photo_icon(notifications,'trash',color='white')
+    app.notification_delete_button=ttk.Button(filters,text='Elimina tutto',image=app.notification_delete_icon,compound='left',style='Primary.TButton')
+    app.notification_delete_button.pack(side='right',padx=(14,0))
+    def clear_notifications():
+        if not messagebox.askyesno('Elimina tutte le notifiche',
+                'Eliminare tutte le notifiche raccolte da Sentinella, anche quelle escluse dai filtri, '
+                'e i contenuti registrati nei suoi file?\n\n'
+                'Le notifiche di Windows, le cartelle autorizzate, le programmazioni e i registri degli invii restano invariati. '
+                'La pulizia è definitiva.',parent=notifications,default='no'):
+            return False
+        from history_cleanup import clear_notifications as clear_notification_files
+        removed=set(app.rows)
+        def done(result):
+            if result.get('complete'):
+                for key in removed:
+                    if key in app.rows:
+                        app.tree.delete(key)
+                        del app.rows[key]
+                app.notifications_cleared_at=result.get('cleared_at',0)
+                app.counter.set(f'Pulizia completata · {len(app.rows)} nuove notifiche' if app.rows else 'Notifiche e contenuti registrati eliminati.')
+                app.show_details('Seleziona una delle nuove notifiche.' if app.rows else 'Nessuna notifica. Le nuove notifiche compariranno qui.')
+            else:app.counter.set('Pulizia incompleta: '+'; '.join(result.get('errors',[])))
+        start_cleanup(notifications,app.notification_delete_button,lambda:clear_notification_files(ROOT),done)
+        return True
+    app.clear_notifications=clear_notifications
+    app.notification_delete_button.configure(command=clear_notifications)
     split=ttk.Panedwindow(notifications,orient='vertical');split.pack(fill='both',expand=True)
     listing=ttk.Frame(split);split.add(listing,weight=3)
     app.tree=table(listing,(('time','Quando',140),('app','Origine',90),('kind','Evento osservato',180),('title','Chat',320)),8)
@@ -379,7 +500,7 @@ def build_settings(panel, parent, on_saved, open_logs, restart_reader):
     panel.questions=tk.BooleanVar(value=cfg.get('shared_controls',{}).get('questions',any(app_enabled(cfg,a,'questions') for a in cfg['apps'])))
     panel.approvals=tk.BooleanVar(value=cfg.get('enabled',False) and cfg.get('shared_controls',{}).get('approvals',any(app_enabled(cfg,a,'approvals') for a in cfg['apps'])))
     panel.recovery=tk.BooleanVar(value=cfg.get('automatic_file_recovery',False))
-    for label,var,callback in (('Rileva domande nelle chat',panel.questions,panel.save_apps),('Risposta automatica alle domande',panel.away,panel.save),('Consenti operazioni sui file delegati',panel.approvals,panel.save_apps),('Recupera scritture bloccate',panel.recovery,panel.save_apps)):
+    for label,var,callback in (('Rileva domande nelle chat',panel.questions,panel.save_apps),('Risposta automatica alle domande',panel.away,panel.save_away),('Consenti operazioni sui file delegati',panel.approvals,panel.save_apps),('Recupera scritture bloccate',panel.recovery,panel.save_apps)):
         hints={'Rileva domande nelle chat':'Rileva le richieste di risposta. Da solo non invia risposte: serve anche Risposta automatica alle domande attiva.', 'Risposta automatica alle domande':'Spento: non risponde automaticamente alle domande, neppure durante la tua assenza. Acceso: invia il messaggio di assenza solo dopo l’inattività configurata e con rilevamento domande attivo. Messaggi programmati e consensi file restano indipendenti.', 'Consenti operazioni sui file delegati':'Gestisce solo consensi riconoscibili per i file nelle cartelle autorizzate. Non risponde alle domande e non autorizza eliminazioni, shell, rete o credenziali.', 'Recupera scritture bloccate':'Un solo tentativo di recupero per una scrittura già autorizzata e fallita. Richiede consensi file attivi e rispetta cartelle, pausa e bozze.'}
         Switch(behavior,text=label,variable=var,command=callback,help_text=hints[label]).pack(anchor='w',pady=8)
     ttk.Label(behavior,text='Si applicano a tutte le applicazioni rilevate. Il recupero usa gli stessi file e richiede i consensi file attivi.',style='Muted.TLabel',wraplength=650).pack(anchor='w',pady=(6,0))

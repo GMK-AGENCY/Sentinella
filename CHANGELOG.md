@@ -1,5 +1,14 @@
 # Modifiche
 
+## 0.2.6
+
+- Salvataggi uniformi per programmazioni, raccolta e tempi dei controlli: Salva modifiche o Scarta modifiche; chiusura dell'avviso ed Esc mantengono l'editor. La protezione comprende cambio pagina, cambio elemento e chiusura dell'app.
+- Gli interruttori salvati subito non salvano più i tempi ancora in modifica. L'esportazione nella raccolta usa una finestra dedicata e non salva o attiva la programmazione.
+- Comandi Pausa/Riprendi con icona e testo, più cestino con conferma, a destra di ogni programmazione. Eliminare una programmazione conserva cronologia, bozze e prenotazioni incerte.
+- Clic sul nome della chat in Panoramica per modificare, senza menu laterale. Frequenza e tre opzioni su quattro colonne; selezione chat iniziale limitata alle ultime 24 ore.
+- Dodici messaggi predefiniti riscritti per proseguire il lavoro già autorizzato durante l'assenza dell'utente, preservando domande e permessi mancanti senza bloccare le attività indipendenti.
+- Pulizia completa del registro invii e delle notifiche dai rispettivi filtri, con conferma e cancellazione dei file associati già conclusi. Timer, configurazioni, bozze e prove operative contro i duplicati restano conservati.
+
 ## 0.2.5
 
 - Modifica delle programmazioni direttamente sotto l’elenco, senza aprire il percorso di creazione. Editor unico, protezione delle modifiche non salvate e comandi riuniti in basso.

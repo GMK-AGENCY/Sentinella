@@ -9,9 +9,10 @@ from tkinter import ttk, messagebox
 import uuid
 
 from runtime_paths import data_root
-from default_message_templates import starter_library
+from default_message_templates import LEGACY_TEMPLATE_TEXTS_BY_ID, starter_library
 from ui_components import AutoScrollbar, PlaceholderEntry
 from switch_control import Tooltip
+from unsaved_changes import resolve_unsaved
 
 PERSONAL_COLLECTION = str(uuid.uuid5(uuid.NAMESPACE_URL, 'sentinella://collections/personal'))
 
@@ -120,6 +121,14 @@ class MessageLibraryStore:
 
     def list(self, query="", collection_id=None):
         data=self._normalized(self._read());rows=data['items']
+        current = {item['id']: item for item in starter_library()['items']}
+        # An overlay only: neither reads nor unrelated saves rewrite seeds.
+        for item in rows:
+            legacy = LEGACY_TEMPLATE_TEXTS_BY_ID.get(item['id'])
+            replacement = current.get(item['id'])
+            if (legacy and replacement and not isinstance(item['updated_at'], bool) and item['updated_at'] == 0
+                    and item['title'] == legacy['title'] and item['text'] == legacy['text']):
+                item['text'] = replacement['text']
         names={row['id']:row['name'] for row in data['collections']}
         query = query.casefold().strip()
         return sorted((dict(item) for item in rows if (collection_id is None or item['collection_id']==collection_id) and (not query or query in (item["title"] + "\n" + item["text"]+'\n'+names[item['collection_id']]).casefold())),
@@ -246,15 +255,15 @@ class MessageLibraryPanel(ttk.Frame):
         self.tree.bind("<<TreeviewSelect>>", self.select)
         self.query.trace_add("write", lambda *_: self.refresh(reload=False))
         self.collection_filter.trace_add("write",lambda *_:self.refresh(reload=False))
-        self.refresh()
+        self.refresh(guard=False)
         self.baseline_collection=self.collection_value.get()
 
     def collection_dialog(self,rename=False):
         collection_id=self.collection_options.get(self.collection_filter.get()) if rename else None
-        editor_collection_id=self.collection_options.get(self.collection_value.get())
         if rename and collection_id is None:
             self.status.set('Scegli una raccolta nel filtro prima di rinominarla.');return
         if not self._may_leave():return
+        editor_collection_id=self.collection_options.get(self.collection_value.get())
         window=tk.Toplevel(self);window.title('Rinomina raccolta' if rename else 'Nuova raccolta');window.geometry('460x210');window.resizable(False,False)
         body=ttk.Frame(window,padding=20);body.pack(fill='both',expand=True)
         value=tk.StringVar(value=self.collection_filter.get() if rename else '');error=tk.StringVar()
@@ -294,12 +303,31 @@ class MessageLibraryPanel(ttk.Frame):
         return self._values() != self.baseline or self.collection_value.get()!=self.baseline_collection
 
     def _may_leave(self):
-        if not self._dirty():
-            return True
-        choice = messagebox.askyesnocancel("Modifiche non salvate", "Vuoi salvare le modifiche a questo messaggio prima di continuare?", parent=self)
-        return self.save() if choice is True else choice is False
+        return self.may_leave()
 
-    def refresh(self, reload=True):
+    def is_dirty(self):
+        return self._dirty()
+
+    def discard_changes(self):
+        selected_id = self.selected_id
+        if not self.refresh(guard=False):
+            return False
+        self._load(next((item for item in self.items if item['id'] == selected_id), None))
+        self.rendering = True
+        try:
+            self.tree.selection_remove(*self.tree.selection())
+            if self.selected_id in self.tree.get_children():
+                self.tree.selection_set(self.selected_id)
+        finally:
+            self.rendering = False
+        return True
+
+    def may_leave(self):
+        return resolve_unsaved(self, dirty=self.is_dirty(), save=self.save, discard=self.discard_changes)
+
+    def refresh(self, reload=True, *, guard=True):
+        if reload and guard and not self._may_leave():
+            return False
         try:
             if reload:
                 self.items = self.store.list()
@@ -327,8 +355,10 @@ class MessageLibraryPanel(ttk.Frame):
                 self.tree.delete(item_id)
             if self.selected_id in self.tree.get_children():
                 self.tree.selection_set(self.selected_id)
+            return True
         except (OSError, ValueError) as exc:
             self.status.set(str(exc))
+            return False
 
         finally:
             self.rendering = False
@@ -402,7 +432,7 @@ class MessageLibraryPanel(ttk.Frame):
             self.baseline = (item["title"], item["text"])
             self.baseline_collection=self.collection_value.get()
             self.title_value.set(item["title"])
-            self.refresh()
+            self.refresh(guard=False)
             self.baseline_collection=self.collection_value.get()
             self.status.set("Messaggio salvato. Nessun invio programmato.")
             return True
@@ -411,11 +441,13 @@ class MessageLibraryPanel(ttk.Frame):
             return False
 
     def use(self):
+        if not self.may_leave():
+            return
         text = self.text.get("1.0", "end-1c")
         if not text.strip() or len(text) > 12000:
             self.status.set("Inserisci un testo da 1 a 12000 caratteri da usare nel messaggio.")
             return
-        # Reuse does not discard the editor or implicitly write the library.
+        # Read after resolving edits so a discarded draft is never copied.
         try:
             if self.on_use(text) is False:
                 self.status.set("Riuso annullato. Il testo nella raccolta è stato conservato.")
@@ -438,6 +470,54 @@ class MessageLibraryPanel(ttk.Frame):
             self.status.set("Messaggio eliminato dalla raccolta.")
         except (OSError, ValueError) as exc:
             self.status.set(str(exc))
+
+
+def save_text_as_message(parent, text, on_saved=None):
+    """Name and save a copy without leaving the composer or saving its timer."""
+    MessageLibraryStore._validate_text('Nuovo messaggio', text)
+    store = MessageLibraryStore()
+    collections = {row['name']: row['id'] for row in store.collections()}
+    if not collections:
+        collections = {'Personali': None}
+    window = tk.Toplevel(parent)
+    window.title('Salva nei messaggi')
+    window.geometry('500x290')
+    window.minsize(440, 290)
+    window.transient(parent.winfo_toplevel())
+    body = ttk.Frame(window, padding=20)
+    body.pack(fill='both', expand=True)
+    title = tk.StringVar()
+    collection = tk.StringVar(value='Personali' if 'Personali' in collections else next(iter(collections)))
+    error = tk.StringVar()
+    ttk.Label(body, text='Nome del messaggio').pack(anchor='w')
+    entry = ttk.Entry(body, textvariable=title)
+    entry.pack(fill='x', pady=(6, 12))
+    ttk.Label(body, text='Raccolta').pack(anchor='w')
+    ttk.Combobox(body, textvariable=collection, values=list(collections), state='readonly').pack(fill='x', pady=(6, 10))
+    ttk.Label(body, textvariable=error, foreground='#a44324', wraplength=440).pack(anchor='w')
+    ttk.Label(body, text='Salva soltanto il testo. La programmazione resta invariata.',
+              wraplength=440, style='Muted.TLabel').pack(anchor='w', pady=(8, 0))
+
+    def save():
+        try:
+            if collection.get() not in collections:
+                raise ValueError('Scegli una raccolta.')
+            item = store.save(title.get(), text, collection_id=collections[collection.get()])
+        except (OSError, ValueError) as exc:
+            error.set(str(exc))
+            entry.focus_set()
+            return
+        window.destroy()
+        if on_saved is not None:
+            on_saved(item)
+
+    actions = ttk.Frame(body)
+    actions.pack(side='bottom', fill='x', pady=(14, 0))
+    ttk.Button(actions, text='Salva messaggio', command=save, style='Primary.TButton').pack(side='right')
+    ttk.Button(actions, text='Annulla', command=window.destroy).pack(side='right', padx=(0, 8))
+    window.bind('<Escape>', lambda _event: window.destroy())
+    entry.focus_set()
+    return window
 
 
 class MessageLibraryChooser(tk.Toplevel):

@@ -89,6 +89,8 @@ class TimerStore:
         if exists and outcome not in {'attention', 'waiting'}:
             legacy_args = []
             legacy_where = 'confirmed_at IS NOT NULL AND receipt IS NOT NULL'
+            if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='history_hidden_connector_receipts'").fetchone():
+                legacy_where += ' AND NOT EXISTS (SELECT 1 FROM history_hidden_connector_receipts h WHERE h.token=connector_deliveries.token)'
             if job_id:
                 legacy_where += ' AND job_id=?'; legacy_args.append(job_id)
             if since is not None:

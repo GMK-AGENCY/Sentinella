@@ -6,6 +6,40 @@ import unittest
 from unittest.mock import Mock, patch
 
 from message_library import MessageLibraryPanel, MessageLibraryStore, MessageLibraryChooser
+from default_message_templates import LEGACY_TEMPLATE_TEXTS_BY_ID, starter_library
+from message_templates import AUTONOMOUS_CONTINUATION
+
+
+class AutonomousStarterTests(unittest.TestCase):
+    def test_all_twelve_preserve_historical_ids_titles_and_collection_shape(self):
+        data=starter_library();items=data['items']
+        self.assertEqual(len(data['collections']),4);self.assertEqual(len(items),12)
+        self.assertEqual({item['id'] for item in items},set(LEGACY_TEMPLATE_TEXTS_BY_ID))
+        for item in items:
+            with self.subTest(title=item['title']):
+                old=LEGACY_TEMPLATE_TEXTS_BY_ID[item['id']]
+                self.assertEqual(item['title'],old['title'])
+                self.assertNotEqual(item['text'],old['text'])
+                self.assertEqual(set(old),{'title','text'})
+                self.assertEqual(item['updated_at'],0)
+                self.assertEqual(len([row for row in items if row['collection_id']==item['collection_id']]),3)
+
+    def test_every_message_directs_completion_without_waiting_for_absent_user(self):
+        for item in starter_library()['items']:
+            with self.subTest(title=item['title']):
+                text=item['text'];folded=text.casefold()
+                self.assertIn(AUTONOMOUS_CONTINUATION,text)
+                self.assertIn('utente è assente',folded)
+                self.assertIn('fino a completare il lavoro già autorizzato',folded)
+                self.assertIn('attività indipendenti già autorizzate',folded)
+                self.assertIn('informazione o un permesso indispensabile',folded)
+                self.assertIn('annota il punto',folded)
+                self.assertIn('non aggirarli',folded)
+                self.assertIn('non attribuirti nuove autorizzazioni',folded)
+                self.assertIn('senza ampliare il perimetro',folded)
+                self.assertLessEqual(len(text),12000)
+                for phrase in ('prima di procedere','proponi','attendi una risposta','aspetta una risposta','domani'):
+                    self.assertNotIn(phrase,folded)
 
 
 class LibraryTests(unittest.TestCase):
@@ -128,7 +162,7 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(self.store.get(one["id"])["text"], "Literal")
 
     def test_use_only_calls_text_callback_and_never_saves(self):
-        view = SimpleNamespace(text=Mock(), status=Mock(), on_use=Mock(), store=Mock())
+        view = SimpleNamespace(text=Mock(), status=Mock(), on_use=Mock(), store=Mock(), may_leave=Mock(return_value=True))
         view.text.get.return_value = "Testo letterale\n"
         MessageLibraryPanel.use(view)
         view.on_use.assert_called_once_with("Testo letterale\n")
@@ -136,7 +170,7 @@ class LibraryTests(unittest.TestCase):
         self.assertFalse((self.root / "messages.sqlite3").exists())
 
     def test_cancelled_composer_reuse_does_not_claim_text_copied(self):
-        view = SimpleNamespace(text=Mock(), status=Mock(), on_use=Mock(return_value=False))
+        view = SimpleNamespace(text=Mock(), status=Mock(), on_use=Mock(return_value=False), may_leave=Mock(return_value=True))
         view.text.get.return_value = "Literal"
         MessageLibraryPanel.use(view)
         self.assertIn("annullato", view.status.set.call_args.args[0])
@@ -167,11 +201,12 @@ class LibraryTests(unittest.TestCase):
         view.tree.selection_set.assert_called_once_with("second")
 
     def test_cancelled_dirty_guard_preserves_editor(self):
-        view = SimpleNamespace(_dirty=lambda: True, save=Mock())
-        with patch("message_library.messagebox.askyesnocancel", return_value=None):
+        view = SimpleNamespace(is_dirty=lambda: True, save=Mock(), discard_changes=Mock())
+        view.may_leave=lambda:MessageLibraryPanel.may_leave(view)
+        with patch("unsaved_changes._choose_unsaved", return_value=None):
             self.assertFalse(MessageLibraryPanel._may_leave(view))
         view.save.assert_not_called()
-        with patch("message_library.messagebox.askyesnocancel", return_value=True):
+        with patch("unsaved_changes._choose_unsaved", return_value="save"):
             view.save.return_value = False
             self.assertFalse(MessageLibraryPanel._may_leave(view))
 
@@ -204,7 +239,7 @@ class CollectionInterfaceTests(unittest.TestCase):
         literal=panel.text.get('1.0','end-1c')
         self.assertEqual(panel.collection_value.get(),'Qualità')
         panel.collection_value.set('Riepiloghi')
-        with patch('message_library.messagebox.askyesnocancel',return_value=None):panel.new()
+        with patch('unsaved_changes._choose_unsaved',return_value=None):panel.new()
         self.assertEqual(panel.selected_id,key)
         self.assertEqual(panel.text.get('1.0','end-1c'),literal)
         self.assertTrue(panel.save())

@@ -8,7 +8,7 @@ Il timer gira nel programma: **non richiede una chat di controllo o automazioni 
 
 Requisiti: Windows 11 a 64 bit e le app desktop che si desidera controllare. **La versione Windows installabile include Python e tutte le dipendenze: non devi installare Python.** Non serve una chiave API OpenAI.
 
-1. Scarica `Sentinella-0.2.5-Windows-x64-Setup.exe` dalla release.
+1. Scarica `Sentinella-0.2.6-Windows-x64-Setup.exe` dalla release.
 2. Esegui l'installer per il tuo utente: non richiede diritti di amministratore.
 3. Avvia **Sentinella** dal menu Start. Il primo avvio è in pausa.
 4. In **Impostazioni**, premi **Rileva applicazioni**, scegli le funzioni e le cartelle già autorizzate, poi togli la pausa quando sei pronto.
@@ -33,7 +33,7 @@ Al primo avvio Sentinella è **in pausa**, con risposte automatiche, consensi, a
 
 Apri **Programmazioni** e seleziona una riga: testo e opzioni si modificano direttamente sotto l’elenco. I comandi di salvataggio e riuso sono riuniti in basso. Solo **Nuova programmazione** usa la scelta dei destinatari seguita da Scrivi e programma. Il primo invio parte dopo l'intervallo scelto, senza recuperare gli arretrati con una raffica.
 
-La **Panoramica** mostra ogni messaggio con frequenza, prossima attività e ultima ricevuta disponibile. Il pulsante pausa/ripresa della riga agisce soltanto su quel messaggio; il doppio clic apre l'editor. Il menu della riga apre anche il relativo registro. Le programmazioni sospese e le bozze mostrano il motivo dell'attesa al posto di un conto alla rovescia. **Diagnostica** apre gli aggiornamenti dei componenti separatamente: un processo aggiornato non dimostra che un messaggio sia stato ricevuto.
+La **Panoramica** mostra ogni messaggio con frequenza, prossima attività e ultima ricevuta disponibile. Il pulsante pausa/ripresa della riga agisce soltanto su quel messaggio; un clic sul nome apre l'editor. I dettagli degli invii si consultano nel Registro invii. Le programmazioni sospese e le bozze mostrano il motivo dell'attesa al posto di un conto alla rovescia. **Diagnostica** apre gli aggiornamenti dei componenti separatamente: un processo aggiornato non dimostra che un messaggio sia stato ricevuto.
 
 **Messaggi salvati** conserva testi riutilizzabili. Usare un testo compila l'editor, senza creare o inviare una programmazione.
 
@@ -49,9 +49,15 @@ La **Panoramica** mostra ogni messaggio con frequenza, prossima attività e ulti
 
 Le letture non cambiano focus. Quando l’invio durante l’uso del PC è attivo, Sentinella può selezionare la chat esatta nell’applicazione in background tramite i controlli nativi, senza simulare mouse o tastiera. Ricontrolla il primo piano prima della selezione e dell’invio. Se l’app destinataria è in uso su un’altra chat, conserva il lavoro e attende. Le ricevute Claude provengono soltanto da messaggi utente della sessione identificata; la rimozione dello spazio terminale da parte dell'app viene dichiarata nella ricevuta. Un residuo esatto della bozza di Sentinella viene salvato integralmente in `logs/preserved-drafts` prima della pulizia; bozze diverse restano nel campo.
 
+## Modifiche e pulizia dei registri
+
+Prima di lasciare un editor con modifiche non salvate, **Salva modifiche** le registra e **Scarta modifiche** ricarica i valori salvati. Chiudere l'avviso o premere Esc annulla la navigazione. Gli interruttori delle impostazioni indicati come immediati vengono salvati separatamente dai tempi ancora in modifica.
+
+**Elimina tutto**, a destra dei filtri di Registro invii e Notifiche, richiede conferma e riguarda l'intero registro, anche con filtri attivi. Rimuove i contenuti storici e gli export di ricevuta già conclusi associati. Non cancella chat, notifiche Windows, cartelle autorizzate o configurazioni. Scadenze, bozze e registrazioni operative necessarie a evitare duplicati restano conservate. Le notifiche eliminate non ricompaiono dopo un riavvio; i nuovi eventi continuano a essere raccolti. Nella modalità sorgenti i dati sono in `logs/`; nell'app installata in `%LOCALAPPDATA%\Sentinella\logs`.
+
 ## Messaggi salvati
 
-La sezione **Messaggi salvati** organizza testi ricercabili e modificabili in raccolte. Un archivio nuovo include quattro raccolte con dodici messaggi standard; gli archivi esistenti conservano i propri testi. **Nuova raccolta** crea una categoria; **Nuovo messaggio** prepara un testo nella raccolta scelta. **Salva nei messaggi** porta il testo dell'editor nella biblioteca; **Usa nella programmazione** lo riporta nell'editor senza inviarlo o creare una programmazione. Il testo già presente nell'editor è protetto da conferma. L'archivio locale `message-library.json` e la sua copia `.bak` contengono dati privati e sono esclusi dai pacchetti pubblici.
+La sezione **Messaggi salvati** organizza testi ricercabili e modificabili in raccolte. Un archivio nuovo include quattro raccolte con dodici messaggi standard; gli archivi esistenti conservano i testi personali. I soli messaggi predefiniti riconosciuti integralmente e mai modificati vengono aggiornati senza riscrivere l'archivio alla lettura. **Nuova raccolta** crea una categoria; **Nuovo messaggio** prepara un testo nella raccolta scelta. **Salva nei messaggi** apre una finestra per scegliere nome e raccolta senza salvare o attivare la programmazione; **Usa nella programmazione** lo riporta nell'editor senza inviarlo o creare una programmazione. Il testo già presente nell'editor è protetto da conferma. L'archivio locale `message-library.json` e la sua copia `.bak` contengono dati privati e sono esclusi dai pacchetti pubblici.
 
 Nella scelta delle chat, **ID sessione** mostra un identificativo abbreviato quando è ricavabile senza ambiguità. Il filtro Cerca include anche l'ID. Un nome duplicato non viene associato arbitrariamente a una sessione: rinomina la chat nell'applicazione e aggiorna l'elenco.
 
