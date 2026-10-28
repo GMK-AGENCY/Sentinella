@@ -21,6 +21,11 @@ def _schedule_display(job, stored, config, now, waiting_reason=None):
     result = {"frequency": f"Ogni {job['interval_seconds'] / 60:g} min" if job.get("repeat", True) else f"Una volta, dopo {job['interval_seconds'] / 60:g} min", "last_sent": clock_label(last, now) if last else "Mai inviato", "detail": state.get("detail", "In attesa del primo invio"), "due": due}
     if not job.get("enabled") or config.get("paused"):
         return {**result, "status": "In pausa", "next": "Riprendi Sentinella" if config.get("paused") else "Riprendi il messaggio"}
+    detail = result['detail'].casefold()
+    before_send = phase != 'uncertain' or state.get('local_stage') in {'reserved','drafted'}
+    if phase != 'finished' and before_send and 'cambio chat rinviato' in detail:
+        return {**result, 'status':'Attende cambio chat', 'next':'Apri la chat destinataria',
+                'detail':'Il messaggio è pronto, ma la chat destinataria non è aperta. Aprila nell’app oppure attendi l’inattività del PC: Sentinella evita di cambiare chat mentre lavori.'}
     if phase == "uncertain":
         if 'bozza scomparsa' in result['detail'].casefold():
             return {**result, 'status':'Da verificare', 'next':'Controlla il registro'}
@@ -35,8 +40,6 @@ def _schedule_display(job, stored, config, now, waiting_reason=None):
         return {**result, "status": "Da verificare", "next": "Invio sospeso"}
     if phase == "finished":
         return {**result, "status": "Completato", "next": "Nessun altro invio"}
-    if phase == 'drafted':
-        return {**result, 'status':'Preparazione', 'next':'Attende il prossimo controllo'}
     detail = result["detail"].casefold()
     if "chat in elaborazione" in detail:
         return {**result, "status": "Attende la chat", "next": "Quando è libera"}
@@ -46,6 +49,8 @@ def _schedule_display(job, stored, config, now, waiting_reason=None):
         return {**result, "status": "Richiesta aperta", "next": "Invio in attesa"}
     if "chat non trovata" in detail or "titolo ambiguo" in detail:
         return {**result, "status": "Chat da verificare", "next": "Invio in attesa"}
+    if phase == 'drafted':
+        return {**result, 'status':'Preparazione', 'next':'Messaggio pronto da inviare'}
     if due <= now:
         if waiting_reason and waiting_reason.startswith("PC in uso"):
             return {**result, "status": "In attesa", "next": "Attende PC libero", "detail": waiting_reason}
@@ -88,11 +93,12 @@ def schedule_display(job, stored, config, now, waiting_reason=None):
                  'Accodato alla chat':('queued','Accodato alla chat'),
                  'Verifica ricevuta':('confirming','Conferma in corso'), 'Da verificare':('unconfirmed','Ricezione non confermata'),
                  'Chat da verificare':('attention','Destinatario non disponibile'),
+                 'Attende cambio chat':('waiting','Attende cambio chat'),
                  'Programmato':('scheduled','Programmato')}
     key, label = canonical.get(result['status'], ('waiting','In attesa'))
     if key != 'scheduled':
         precise = {'paused':'Nessun nuovo invio', 'completed':'—', 'draft':'Completa la bozza nella chat',
-                   'preparing':'Attende il prossimo controllo', 'queued':'Attende l’elaborazione della chat',
+                   'preparing':result['next'], 'queued':'Attende l’elaborazione della chat',
                    'confirming':'Attende la ricevuta', 'unconfirmed':'Controlla il registro',
                    'attention':'Controlla il destinatario'}.get(key, result['next'])
     detail = result['detail']

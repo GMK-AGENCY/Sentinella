@@ -4,6 +4,16 @@ from schedule_display import schedule_display
 
 
 class DisplayTests(unittest.TestCase):
+    def test_prepared_message_keeps_the_actual_reason_for_waiting(self):
+        state={'version':'new','phase':'drafted','due':self.now,
+               'detail':"Cambio chat rinviato durante l'uso del PC"}
+        display=schedule_display(self.job,state,{},self.now)
+        self.assertEqual(display['status'],'Attende cambio chat')
+        self.assertEqual(display['next_precise'],'Apri la chat destinataria')
+        self.assertIn('mentre lavori',display['detail'])
+        state.update(phase='uncertain',local_stage='drafted')
+        self.assertEqual(schedule_display(self.job,state,{},self.now)['status'],'Attende cambio chat')
+
     def test_known_queue_is_not_reclassified_as_unknown_after_two_minutes(self):
         state = {'version':'new', 'phase':'uncertain', 'local_stage':'awaiting_receipt',
                  'reserved_at':self.now-3600, 'due':self.now-3500,
