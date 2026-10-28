@@ -67,12 +67,16 @@ def typing_keys_down():
 
 
 def native_delivery_config(read_config=load_config, foreground_exe=None, app='codex', allow_present=None):
-    """Shared policy for an already-open background chat; never grants focus."""
+    """Permit native-only delivery; navigation separately protects a used app."""
     config = read_config()
-    if allow_present is False or config.get('paused') or not action_block_reason(config):
+    if allow_present is False or config.get('paused'):
         return config
+    native = {**config, 'idle_seconds_before_actions': 0, 'native_background_delivery': True,
+              'native_navigation_idle_seconds': config.get('idle_seconds_before_actions', 30)}
     if allow_present is True:
-        return {**config, 'idle_seconds_before_actions': 0, 'native_background_delivery': True}
+        return native
+    if not action_block_reason(config):
+        return config
     if foreground_exe is None:
         import psutil
         from desktop_identity import foreground_process_id
@@ -84,4 +88,40 @@ def native_delivery_config(read_config=load_config, foreground_exe=None, app='co
     expected = config.get('apps', {}).get(app, {}).get('process_path')
     if not expected or executable_matches(foreground_exe, expected):
         return config
-    return {**config, 'idle_seconds_before_actions': 0, 'native_background_delivery': True}
+    return native
+
+
+def foreground_app_state(config, app):
+    """True/False/None: target app is foreground/background/not verifiable."""
+    import psutil
+    from desktop_identity import executable_matches, foreground_process_id
+    expected = config.get('apps', {}).get(app, {}).get('process_path')
+    if not expected:
+        return None
+    try:
+        actual = psutil.Process(foreground_process_id()).exe()
+    except (psutil.Error, OSError):
+        return None
+    return executable_matches(actual, expected)
+
+
+def background_navigation_block_reason(config, app):
+    """Recheck human input and foreground immediately before native Invoke.
+
+    An explicit background send may select another chat only while that app is
+    behind the user's current app. After the configured inactivity it may use
+    the normal navigation path. This never activates a window or injects input.
+    """
+    if config.get('paused'):
+        return 'Sentinella in pausa globale'
+    if not config.get('native_background_delivery'):
+        return None
+    threshold = float(config.get('native_navigation_idle_seconds', 30))
+    if threshold <= 0 or idle_seconds() >= threshold:
+        return None
+    foreground = foreground_app_state(config, app)
+    if foreground is True:
+        return 'Applicazione in uso su un’altra chat: selezione rinviata'
+    if foreground is None:
+        return 'Impossibile verificare l’applicazione in primo piano: selezione rinviata'
+    return None

@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from message_engine import TimerStore, tick, validate_job
 
 
@@ -150,6 +150,137 @@ class TimerTests(unittest.TestCase):
         for change in ({"message": " \n"}, {"interval_seconds": 0}, {"interval_seconds": float("nan")}):
             with self.assertRaises(ValueError):
                 validate_job({**self.job, **change})
+
+    def test_claude_legacy_missing_present_flag_matches_the_editor_default(self):
+        self.job['app'] = 'claude'
+        delivery = Mock()
+        delivery.reconcile.return_value = None
+        delivery.cleanup_needed.return_value = False
+        delivery.current.return_value = None
+        with patch('message_engine.load_jobs', return_value=[self.job]), \
+             patch('chat_desktop.step', return_value={'action': 'none', 'reason': 'Test local only'}), \
+             patch('claude_delivery.Delivery', return_value=delivery), \
+             patch('automation_policy.native_delivery_config', return_value={'idle_seconds_before_actions': 0}) as policy:
+            tick(self.config, self.store, now=61)
+        self.assertTrue(policy.call_args.kwargs['allow_present'])
+
+
+class LocalNavigationTests(unittest.TestCase):
+    """Synthetic sender pipeline, private DB/history, native controls mocked."""
+    def setUp(self):
+        import json
+        from codex_delivery import Delivery
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        (self.root / 'logs').mkdir()
+        self.history = self.root / 'history.jsonl'
+        self.thread = '11111111-1111-4111-8111-111111111111'
+        self.history.write_text(json.dumps({'type': 'session_meta', 'payload': {'id': self.thread}}) + '\n')
+        self.store = TimerStore(self.root / 'state.sqlite3')
+        self.job = dict(id='synthetic', version='v1', enabled=True, app='codex', title='Exact target',
+                        group='Project', message='Literal', interval_seconds=60, activated_at=0,
+                        send_when_active=True, send_when_present=True, thread_id=self.thread,
+                        transport='codex_app', ambiguous=False)
+        self.config = {'paused': False, 'idle_seconds_before_actions': 0,
+                       'native_background_delivery': True, 'native_navigation_idle_seconds': 30}
+        self.bridge = Delivery(self.store, lambda: self.config,
+                               lambda: [dict(self.job)], lambda: True)
+        self.metadata = lambda *_: {'id': self.thread, 'rollout_path': str(self.history)}
+        self.owned_root = patch('codex_local_sender.ROOT', self.root)
+        self.owned_root.start()
+
+    def tearDown(self):
+        self.owned_root.stop()
+        self.store.db.close()
+        self.temporary.cleanup()
+
+    def sender_tick(self, adapter=None, observe=None, metadata=None):
+        from codex_local_sender import tick as sender
+        return sender(self.store, self.bridge, now=61, metadata=metadata or self.metadata,
+                      observe=observe or (lambda *_: ('Exact target', 'active')), adapter=adapter)
+
+    def test_codex_pipeline_selects_background_target_and_preserves_unclaimed_timer(self):
+        control = Mock()
+        with patch('chat_desktop.snapshot', return_value=([], 'Other chat')), \
+             patch('chat_desktop.entries', return_value=[({**self.job, 'status': 'Working'}, control)]), \
+             patch('automation_policy.idle_seconds', return_value=0), \
+             patch('automation_policy.foreground_app_state', return_value=False):
+            result = self.sender_tick(adapter=Mock(side_effect=AssertionError('No draft before selection')),
+                                      observe=lambda *_: ('Other chat', 'active'))
+        self.assertEqual(result['action'], 'selected_chat')
+        control.GetInvokePattern.return_value.Invoke.assert_called_once_with()
+        self.assertEqual(self.store.rows()[0]['phase'], 'idle')
+        self.assertEqual(self.store.db.execute('SELECT count(*) FROM connector_deliveries').fetchone()[0], 0)
+
+    def test_codex_pipeline_records_the_specific_foreground_reason(self):
+        control = Mock()
+        with patch('chat_desktop.snapshot', return_value=([], 'Other chat')), \
+             patch('chat_desktop.entries', return_value=[(self.job, control)]), \
+             patch('automation_policy.idle_seconds', return_value=0), \
+             patch('automation_policy.foreground_app_state', return_value=True):
+            result = self.sender_tick(observe=lambda *_: ('Other chat', 'active'))
+        self.assertIn('Applicazione in uso su un’altra chat', result['reason'])
+        self.assertEqual(self.store.rows()[0]['detail'], result['reason'])
+        control.GetInvokePattern.return_value.Invoke.assert_not_called()
+
+    def test_missing_codex_draft_stops_before_native_observation_or_redraft(self):
+        self.sender_tick(adapter=lambda *_: {'action': 'drafted'})
+        self.store.update(self.job, 'uncertain', 'Bozza scomparsa: verifica manuale prima di ripetere')
+        native = Mock(side_effect=AssertionError('Never retry a disappeared draft'))
+        result = self.sender_tick(adapter=native, observe=native, metadata=native)
+        self.assertEqual(result['action'], 'uncertain')
+        self.assertIn('Bozza scomparsa', result['reason'])
+        native.assert_not_called()
+        stage = self.store.db.execute('SELECT stage FROM local_codex_deliveries').fetchone()[0]
+        self.assertEqual(stage, 'drafted')
+
+    def test_codex_pause_and_changed_background_option_stop_before_send(self):
+        for change in ('pause', 'option'):
+            with self.subTest(change=change):
+                if change == 'option':
+                    self.config['paused'] = False
+                else:
+                    self.sender_tick(adapter=lambda *_: {'action': 'drafted'})
+                button = Mock()
+                def ready(*_):
+                    if change == 'pause':
+                        self.config['paused'] = True
+                    else:
+                        self.job['send_when_present'] = False
+                    return {'action': 'ready', 'button': button}
+                result = self.sender_tick(adapter=ready)
+                self.assertIn(result['action'], {'paused_or_changed', 'changed_or_disabled'})
+                button.GetInvokePattern.assert_not_called()
+                self.assertEqual(self.store.db.execute('SELECT stage FROM local_codex_deliveries').fetchone()[0], 'drafted')
+
+    def test_codex_pause_during_last_observation_is_checked_before_send(self):
+        self.sender_tick(adapter=lambda *_: {'action': 'drafted'})
+        observations = 0
+        def observe(*_):
+            nonlocal observations
+            observations += 1
+            if observations == 2:
+                self.config['paused'] = True
+            return 'Exact target', 'active'
+        button = Mock()
+        result = self.sender_tick(adapter=lambda *_: {'action': 'ready', 'button': button}, observe=observe)
+        self.assertEqual(result['action'], 'none')
+        self.assertIn('pausa', result['reason'])
+        button.GetInvokePattern.assert_not_called()
+        self.assertEqual(self.store.db.execute('SELECT stage FROM local_codex_deliveries').fetchone()[0], 'drafted')
+
+    def test_codex_legacy_missing_present_flag_matches_the_editor_default(self):
+        from codex_delivery import Delivery
+        from codex_local_sender import tick as sender
+        self.job.pop('send_when_present')
+        def bridge(store, config_reader):
+            return Delivery(store, config_reader, lambda: [dict(self.job)], lambda: True)
+        with patch('codex_local_sender.native_delivery_config', return_value=self.config) as policy, \
+             patch('codex_local_sender.Delivery', side_effect=bridge):
+            result = sender(self.store, now=0, metadata=self.metadata,
+                            observe=Mock(side_effect=AssertionError('Timer not due')))
+        self.assertEqual(result['action'], 'idle')
+        self.assertTrue(policy.call_args.kwargs['allow_present'])
 
 
 if __name__ == "__main__":

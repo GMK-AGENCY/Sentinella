@@ -154,8 +154,8 @@ def tick(config, store, now=None, adapter=None, reconcile_only=False):
         if live_adapter and job['app'] == 'claude':
             from claude_delivery import Delivery
             from automation_policy import native_delivery_config
-            native_config = native_delivery_config(lambda: config, app='claude', allow_present=job.get('send_when_present'))
-            guard = lambda: action_block_reason(native_delivery_config(app='claude', allow_present=job.get('send_when_present')))
+            native_config = native_delivery_config(lambda: config, app='claude', allow_present=job.get('send_when_present', True))
+            guard = lambda: action_block_reason(native_delivery_config(app='claude', allow_present=job.get('send_when_present', True)))
             claude = Delivery(store, ROOT)
             reconciled = claude.reconcile(job, state)
             if reconciled and reconciled['action'] in {'awaiting_receipt', 'modified_submission'}:

@@ -4,6 +4,20 @@ from schedule_display import schedule_display
 
 
 class DisplayTests(unittest.TestCase):
+    def test_unknown_old_send_is_never_hidden_by_user_activity(self):
+        state={'version':'new','phase':'uncertain','local_stage':'drafted','due':self.now-300,
+               'detail':'Bozza scomparsa: verifica manuale prima di ripetere'}
+        result=schedule_display(self.job,state,{},self.now,'PC in uso: attendo 30 secondi')
+        self.assertEqual(result['status_key'],'unconfirmed')
+        self.assertEqual(result['next_precise'],'Controlla il registro')
+
+    def test_busy_app_is_distinct_from_using_the_pc_elsewhere(self):
+        state={'version':'new','phase':'drafted','due':self.now-1,
+               'detail':'Applicazione in uso su un’altra chat: selezione rinviata'}
+        result=schedule_display({**self.job,'app':'claude','send_when_present':True},state,{},self.now,'PC in uso')
+        self.assertEqual(result['next_precise'],'Claude in uso')
+        self.assertNotIn('PC in uso',result['detail'])
+
     def test_prepared_message_keeps_the_actual_reason_for_waiting(self):
         state={'version':'new','phase':'drafted','due':self.now,
                'detail':"Cambio chat rinviato durante l'uso del PC"}

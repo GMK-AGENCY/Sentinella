@@ -81,7 +81,7 @@ def read_receipt(identity, expected, since, offset=0, until=None, queued_only=Fa
     path = Path(identity['history'])
     if not path.is_file() or path.stat().st_size < offset:
         return None
-    enqueued, attachments, pending = {}, {}, None
+    enqueued, attachments, pending = [], {}, None
     with path.open('rb') as stream:
         stream.seek(offset)
         read = 0
@@ -105,7 +105,7 @@ def read_receipt(identity, expected, since, offset=0, until=None, queued_only=Fa
             kind = record.get('type')
             if kind == 'queue-operation' and receipt_matches(expected, record.get('content')):
                 if record.get('operation') == 'enqueue':
-                    enqueued[at] = record['content']
+                    enqueued.append((at, record['content']))
                     pending = {'queued': True, 'at': at}
                 elif record.get('operation') in {'remove', 'dequeue'}:
                     pending = None
@@ -127,13 +127,22 @@ def read_receipt(identity, expected, since, offset=0, until=None, queued_only=Fa
                             uuid.UUID(identifier)
                     except (KeyError, ValueError, TypeError, AttributeError):
                         continue
-                    if command_at in enqueued and at == command_at and command['prompt'] == enqueued[command_at]:
+                    # Claude's queue envelope can be serialized one millisecond
+                    # after the command timestamp. Keep the exact human text,
+                    # session, envelope/command timestamp and absorption UUID
+                    # chain mandatory. Only one matching enqueue within 10 ms
+                    # may authorize this attachment; duplicates are ambiguous.
+                    matching_enqueues = [queued_at for queued_at, text in enqueued
+                                         if abs(queued_at - command_at) <= .010
+                                         and command['prompt'] == text]
+                    if len(matching_enqueues) == 1 and at == command_at:
                         actual = command['prompt']
                         attachments[(command['source_uuid'], command['delivery_id'])] = {
                             'uuid': record['uuid'], 'at': at, 'text': actual, 'session': identity['session'],
                             'history': str(path), 'configured_sha256': digest(expected), 'received_sha256': digest(actual),
                             'match': 'exact' if actual == expected else 'claude_terminal_space_trim',
-                            'origin': 'human_mid_turn', 'command_uuid': command['source_uuid'], 'delivery_id': command['delivery_id']}
+                            'origin': 'human_mid_turn', 'command_uuid': command['source_uuid'],
+                            'delivery_id': command['delivery_id'], 'enqueue_at': matching_enqueues[0]}
             if queued_only:
                 if record.get('sessionId') == identity['session'] and record.get('type') == 'queue-operation' and record.get('operation') == 'enqueue' and receipt_matches(expected, record.get('content')):
                     return {'queued': True, 'at': at}

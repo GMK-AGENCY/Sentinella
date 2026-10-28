@@ -277,6 +277,37 @@ class CollectionInterfaceTests(unittest.TestCase):
         chooser.use();self.assertEqual(captured,[literal])
         self.assertFalse(self.panel.store.path.exists())
 
+    def test_chooser_long_preview_border_footer_and_autoscroll_stay_contained(self):
+        long_text=('Riga di anteprima con spazi e caratteri italiani: è già pronta.\n'*100)+'ParolaLunga'*300
+        item=self.panel.store.save('Anteprima lunga per resize',long_text)
+        chooser=MessageLibraryChooser(self.panel,lambda _text:True)
+        chooser.withdraw();chooser.attributes('-alpha',0.0);chooser.attributes('-disabled',True);chooser.deiconify()
+        chooser.query.set('Anteprima lunga per resize');chooser.tree.selection_set(item['id']);chooser.select()
+        for size in ('620x520','760x620','620x520'):
+            chooser.geometry(size);self.root.update();self.root.update_idletasks()
+            frame=chooser.preview_frame;text=chooser.preview;scroll=chooser.preview_scroll
+            fx,fy=frame.winfo_rootx(),frame.winfo_rooty();right=fx+frame.winfo_width();bottom=fy+frame.winfo_height()
+            self.assertEqual(int(frame.cget('highlightthickness')),1)
+            self.assertEqual(int(text.cget('highlightthickness')),0)
+            self.assertGreaterEqual(text.winfo_rootx(),fx+1);self.assertGreaterEqual(text.winfo_rooty(),fy+1)
+            self.assertLessEqual(text.winfo_rootx()+text.winfo_width(),right-1)
+            self.assertLessEqual(text.winfo_rooty()+text.winfo_height(),bottom-1)
+            self.assertLessEqual(scroll.winfo_rootx()+scroll.winfo_width(),right-1)
+            self.assertLessEqual(scroll.winfo_rooty()+scroll.winfo_height(),bottom-1)
+            self.assertLess(bottom,chooser.cancel_button.winfo_rooty())
+            self.assertLess(chooser.cancel_button.winfo_rootx(),chooser.use_button.winfo_rootx())
+            self.assertLessEqual(chooser.use_button.winfo_rootx()+chooser.use_button.winfo_width(),chooser.winfo_rootx()+chooser.winfo_width()-16)
+            self.assertLessEqual(chooser.use_button.winfo_rooty()+chooser.use_button.winfo_height(),chooser.winfo_rooty()+chooser.winfo_height()-16)
+            self.assertGreaterEqual(chooser.use_button.winfo_width(),chooser.use_button.winfo_reqwidth())
+            self.assertEqual(text.xview(),(0.0,1.0))
+            self.assertEqual(scroll.winfo_manager(),'grid')
+            text.see('end');self.root.update_idletasks()
+            self.assertEqual(text.get('1.0','end-1c'),long_text)
+            self.assertAlmostEqual(text.yview()[1],1.0)
+        chooser.query.set('__nessun_messaggio__');self.root.update();self.root.update_idletasks()
+        self.assertFalse(chooser.preview_scroll.winfo_manager())
+        chooser.destroy()
+
     def test_new_and_rename_collection_dialogs_keep_unrelated_editor_model(self):
         import tkinter as tk
         from tkinter import ttk

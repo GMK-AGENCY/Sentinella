@@ -19,150 +19,125 @@ from ui_components import AutoScrollbar
 
 class MessagesPanel(ttk.Frame):
     def __init__(self, parent):
-        super().__init__(parent, padding=15)
-        self.selected_job = None
-        self.target = None
-        self.targets = []
-        self.chats = {}
-        self.catalog = []
-        self.scan_errors = []
-        self.filter_pending = None
-        self.results = queue.Queue()
-        self.scan_running = False
-        self.last_render = 0
-        self.last_preview = 0
-        self.rendering_chats = False
-        self.editor_step = 1
-        self.editor_baseline=None
-        self.status = tk.StringVar(value="Scegli Nuovo messaggio per programmare un invio.")
+        super().__init__(parent, padding=20)
+        self.selected_job=None;self.target=None;self.targets=[];self.chats={};self.catalog=[]
+        self.scan_errors=[];self.filter_pending=None;self.results=queue.Queue();self.scan_running=False
+        self.last_render=0;self.last_preview=0;self.rendering_chats=False;self.rendering_jobs=False
+        self.editor_step=1;self.editor_baseline=None;self.editor_visible=False;self.loading_job=False
+        self.status=tk.StringVar()
         self.catalog_status=tk.StringVar(value='Premi Aggiorna elenco per rilevare le chat aperte.')
-        self.list_view = ttk.Frame(self)
-        self.editor = ttk.Frame(self)
-        self.editor_visible = False
-        self.list_view.pack(fill="both", expand=True)
-        heading = ttk.Frame(self.list_view)
-        heading.pack(fill="x", pady=(0, 12))
-        ttk.Label(heading, text="I tuoi messaggi", style="Section.TLabel").pack(side="left")
-        ttk.Button(heading, text="Nuovo messaggio", command=self.new, style="Primary.TButton").pack(side="right")
-        ttk.Label(self.list_view, text="Vedi quando partiranno e quando sono stati inviati. Doppio clic per modificare.", style="Muted.TLabel").pack(anchor="w", pady=(0, 10))
-        self.job_list = ttk.Treeview(self.list_view, columns=("title", "state", "next", "activity", "last"), show="headings", height=5, selectmode="extended")
-        for col, label, width in (("title", "Destinatario", 190), ("state", "Stato", 85), ("next", "Prossimo invio", 180), ("activity", "Cosa sta facendo", 280), ("last", "Ultimo invio", 100)):
-            self.job_list.heading(col, text=label)
-            self.job_list.column(col, width=width, minwidth=60)
-        self.job_list.pack(fill="both", expand=True)
-        for tag, color in (("Attivo", "#19553a"), ("In pausa", "#697386"), ("Completato", "#697386")):
-            self.job_list.tag_configure(tag, foreground=color)
-        self.job_list.bind("<<TreeviewSelect>>", self.choose_job)
-        self.job_list.bind("<Double-1>", lambda _: self.edit_selected())
-        controls = ttk.Frame(self.list_view)
-        controls.pack(fill="x", pady=(12, 8))
-        self.edit_button = ttk.Button(controls, text="Modifica messaggio", command=self.edit_selected, state="disabled")
-        self.edit_button.pack(side="left")
-        self.toggle_job = ttk.Button(controls, text="Metti in pausa", command=self.toggle_selected, state="disabled")
-        self.toggle_job.pack(side="left", padx=8)
-        more = ttk.Menubutton(controls, text="Altre azioni")
-        menu = tk.Menu(more, tearoff=False)
-        menu.add_command(label="Metti in pausa tutti i messaggi", command=self.pause_all)
-        more.configure(menu=menu)
-        more.pack(side="right")
-        ttk.Button(controls, text="Registro invii", command=self.show_history).pack(side="right", padx=8)
-        self.job_detail = tk.StringVar(value="Seleziona un messaggio per leggere il testo e il motivo di un eventuale rinvio.")
-        ttk.Label(self.list_view, textvariable=self.job_detail, wraplength=980, style="Muted.TLabel").pack(anchor="w", pady=(2, 4))
-        top = ttk.Frame(self.editor)
-        top.pack(fill="x", pady=(0, 14))
-        self.back_button = ttk.Button(top, text="← Messaggi", command=self.editor_back)
-        self.back_button.pack(side="left")
-        self.editor_title = tk.StringVar(value="1 · Scegli le chat")
-        ttk.Label(top, textvariable=self.editor_title, style="Section.TLabel").pack(side="left", padx=15)
-        self.commit_button=ttk.Button(top,text='Attiva programmazione',command=self.activate,style='Primary.TButton')
-        self.pick_page = ttk.Frame(self.editor)
-        self.write_page = ttk.Frame(self.editor)
-        self.pick_page.pack(fill="both", expand=True)
-        filters = ttk.Frame(self.pick_page)
-        filters.pack(fill="x", pady=(0, 8))
-        self.search = tk.StringVar()
-        self.app_filter = tk.StringVar(value="Tutte")
-        self.project_filter = tk.StringVar(value="Tutti")
-        self.state_filter = tk.StringVar(value="Tutti")
-        self.period_filter = tk.StringVar(value="Ultimi 7 giorni")
-        def filter_field(column, label, weight=1):
-            filters.columnconfigure(column, weight=weight)
-            frame = ttk.Frame(filters)
-            frame.grid(row=0, column=column, sticky="ew", padx=(0, 10 if column<4 else 0))
-            ttk.Label(frame, text=label, style="Muted.TLabel").pack(anchor="w", pady=(0, 5))
-            return frame
-        ttk.Entry(filter_field(0, "Cerca", 3), textvariable=self.search, width=13).pack(fill="x")
-        ttk.Combobox(filter_field(1, "Applicazione"), textvariable=self.app_filter,
-                     values=("Tutte", "Codex", "Claude"), state="readonly", width=7).pack(fill="x")
-        ttk.Combobox(filter_field(2, "Periodo"), textvariable=self.period_filter,
-                     values=("Ultime 24 ore", "Ultimi 7 giorni", "Ultimi 30 giorni", "Tutte"), state="readonly", width=12).pack(fill="x")
-        self.project_options = ttk.Combobox(filter_field(3, "Progetto", 2), textvariable=self.project_filter,
-                                            values=("Tutti",), state="readonly", width=11)
-        self.project_options.pack(fill="x")
-        self.state_options = ttk.Combobox(filter_field(4, "Stato", 2), textvariable=self.state_filter,
-                                          values=("Tutti",), state="readonly", width=12)
-        self.state_options.pack(fill="x")
-        for variable in (self.search, self.app_filter, self.project_filter, self.state_filter, self.period_filter):
-            variable.trace_add("write", self.filter_changed)
-        chat_table = ttk.Frame(self.pick_page)
-        chat_table.pack(fill="both", expand=True)
-        self.chat_list = ttk.Treeview(chat_table, columns=("app", "title", "session", "group", "state", "activity"), show="headings", height=6, selectmode="extended")
-        chat_scroll = AutoScrollbar(chat_table, orient="vertical", command=self.chat_list.yview)
-        self.chat_list.configure(yscrollcommand=chat_scroll.set)
-        for col, label, width in (("app", "App", 60), ("title", "Chat", 230), ("session", "ID sessione", 100), ("group", "Progetto", 160), ("state", "Stato", 150), ("activity", "Ultima attività", 110)):
-            self.chat_list.heading(col, text=label, anchor='w')
-            self.chat_list.column(col, width=width, minwidth=60)
-        chat_scroll.pack(side="right", fill="y")
-        self.chat_list.pack(side="left", fill="both", expand=True)
-        self.empty_chats = ttk.Label(chat_table, text="Nessuna chat con questi filtri.\nScegli Tutte per includere quelle senza data disponibile.", style="Muted.TLabel", justify="center", wraplength=430)
-        self.chat_list.bind("<<TreeviewSelect>>", self.choose_chat)
-        self.chat_list.bind("<Button-1>", self.click_chat)
-        self.chat_list.bind("<space>", lambda _: self.toggle_chat_row(self.chat_list.focus()))
-        self.target_label = tk.StringVar(value="Nessuna chat selezionata")
-        selected_bar = ttk.Frame(self.pick_page)
-        selected_bar.pack(fill="x", pady=(12, 0))
-        ttk.Label(selected_bar, textvariable=self.target_label, wraplength=740).pack(side="left", fill="x", expand=True)
-        self.clear_targets_button=ttk.Button(selected_bar,text='Svuota selezione',command=self.clear_targets,state='disabled')
-        self.clear_targets_button.pack(side='right')
-        self.refresh_button = ttk.Button(selected_bar, text="Aggiorna elenco", command=self.refresh)
-        self.refresh_button.pack(side='right', padx=(8,8))
-        self.continue_button = ttk.Button(top, text="Continua (0) →", command=self.next_step, style="Primary.TButton", state="disabled")
-        self.continue_button.pack(side='right')
-        self.recipient_summary = tk.StringVar()
-        self.recipient_label=ttk.Label(self.write_page, textvariable=self.recipient_summary, wraplength=980)
-        self.recipient_label.pack(anchor="w", pady=(0, 14))
-        self.composer_label=ttk.Label(self.write_page, text="Cosa vuoi scrivere?", style="Section.TLabel")
-        self.composer_label.pack(anchor="w")
-        self.message = tk.Text(self.write_page, width=1, height=7, wrap="word", font=("Segoe UI", 11), undo=True, relief="flat", padx=12, pady=12)
-        self.message.insert("1.0", DEFAULT_MESSAGE)
-        self.message.pack(fill="both", expand=True, pady=(8, 18))
-        timing = ttk.Frame(self.write_page)
-        timing.pack(fill="x")
-        ttk.Label(timing, text="Intervallo").pack(side="left")
-        self.minutes = tk.StringVar(value="15")
-        ttk.Combobox(timing, values=(5, 10, 15, 30, 60), width=7, textvariable=self.minutes).pack(side="left", padx=8)
-        ttk.Label(timing, text="minuti").pack(side="left")
-        self.repeat = tk.BooleanVar(value=True)
-        Switch(timing, text="Ripeti nel tempo", variable=self.repeat).pack(side="left", padx=24)
-        self.send_when_active = tk.BooleanVar(value=False)
-        Switch(timing, text="Invia anche mentre lavora", variable=self.send_when_active).pack(side="left", padx=8)
-        self.send_when_present = tk.BooleanVar(value=False)
-        self.preview = tk.StringVar()
-        self.preview_label=ttk.Label(self.write_page, textvariable=self.preview, wraplength=980)
-        self.preview_label.pack(anchor="w", pady=(14, 8))
-        ttk.Label(self.write_page, text="Le bozze restano protette. L'opzione vale per tutti i destinatari: il messaggio può essere ricevuto o accodato durante il lavoro. Gli orari seguono il PC.", style="Muted.TLabel", wraplength=980).pack(anchor="w")
-        ttk.Button(self.write_page, text="Attiva programmazione", command=self.activate, style="Primary.TButton").pack(anchor="e", pady=(16, 0))
-        for variable in (self.minutes, self.repeat, self.send_when_active, self.send_when_present):
-            variable.trace_add("write", lambda *_: self.update_preview())
-        self.status_label=ttk.Label(self, textvariable=self.status, style="Muted.TLabel", wraplength=980)
-        self.status_label.pack(side="bottom", fill="x", pady=(12, 0), before=self.list_view)
-        from workspace_ui import modernize_messages
-        modernize_messages(self)
+        self.list_view=ttk.Frame(self);self.list_view.pack(fill='both',expand=True)
+        heading=ttk.Frame(self.list_view);heading.pack(fill='x',pady=(0,10))
+        ttk.Label(heading,text='Programmazioni salvate',style='Section.TLabel').pack(side='left')
+        ttk.Button(heading,text='+ Nuova programmazione',command=self.new,style='Primary.TButton').pack(side='right')
+        self.split=ttk.Panedwindow(self.list_view,orient='vertical');self.split.pack(fill='both',expand=True)
+        listing=ttk.Frame(self.split);self.split.add(listing,weight=1)
+        listing.columnconfigure(0,weight=1);listing.rowconfigure(0,weight=1)
+        self.job_list=ttk.Treeview(listing,columns=('action','title','state','next','last'),show='headings',height=3,selectmode='browse')
+        for col,label,width in [('action','',48),('title','Destinatario',205),('state','Stato',155),('next','Prossima attività',190),('last','Ultima consegna',130)]:
+            self.job_list.heading(col,text=label,anchor='w')
+            self.job_list.column(col,width=width,minwidth=45 if col=='action' else 70,anchor='center' if col=='action' else 'w',stretch=col!='action')
+        self.job_list.grid(row=0,column=0,sticky='nsew')
+        for orient,axis,r,c,sticky in [('vertical','y',0,1,'ns'),('horizontal','x',1,0,'ew')]:
+            bar=AutoScrollbar(listing,orient=orient,command=getattr(self.job_list,axis+'view'));bar.grid(row=r,column=c,sticky=sticky)
+            self.job_list.configure(**{axis+'scrollcommand':bar.set})
+        self.job_list.tag_configure('In pausa',foreground='#697386')
+        self.job_list.bind('<<TreeviewSelect>>',self.choose_job)
+        self.job_list.bind('<Double-1>',lambda _event:self.edit_selected())
+        self.job_list.bind('<Button-1>',self.click_job)
+        self.inline_host=ttk.Frame(self.split,padding=(0,10,0,0));self.split.add(self.inline_host,weight=4)
+        self.inline_hint=ttk.Label(self.inline_host,text='Seleziona una programmazione per modificarla qui.',style='Muted.TLabel')
+        self.inline_hint.pack(anchor='w',pady=12)
+        self.job_detail=tk.StringVar()
+        self.editor=ttk.Frame(self)
+        top=ttk.Frame(self.editor);top.pack(fill='x',pady=(0,12))
+        self.back_button=ttk.Button(top,text='← Programmazioni',command=self.editor_back);self.back_button.pack(side='left')
+        self.editor_title=tk.StringVar(value='1 · Destinatari')
+        ttk.Label(top,textvariable=self.editor_title,style='Section.TLabel').pack(side='left',padx=14)
+        self.continue_button=ttk.Button(top,text='Continua (0) →',command=self.next_step,style='Primary.TButton',state='disabled');self.continue_button.pack(side='right')
+        self.pick_page=ttk.Frame(self.editor)
+        filters=ttk.Frame(self.pick_page);filters.pack(fill='x',pady=(0,8))
+        self.search=tk.StringVar();self.app_filter=tk.StringVar(value='Tutte');self.project_filter=tk.StringVar(value='Tutti')
+        self.state_filter=tk.StringVar(value='Tutti');self.period_filter=tk.StringVar(value='Ultimi 7 giorni')
+        def field(col,label,weight):
+            filters.columnconfigure(col,weight=weight)
+            frame=ttk.Frame(filters);frame.grid(row=0,column=col,sticky='ew',padx=(0,8 if col<4 else 0))
+            ttk.Label(frame,text=label,style='Muted.TLabel').pack(anchor='w',pady=(0,5));return frame
+        ttk.Entry(field(0,'Cerca',3),textvariable=self.search,width=12).pack(fill='x')
+        ttk.Combobox(field(1,'Applicazione',1),textvariable=self.app_filter,values=('Tutte','Codex','Claude'),state='readonly',width=7).pack(fill='x')
+        ttk.Combobox(field(2,'Periodo',1),textvariable=self.period_filter,values=('Ultime 24 ore','Ultimi 7 giorni','Ultimi 30 giorni','Tutte'),state='readonly',width=12).pack(fill='x')
+        self.project_options=ttk.Combobox(field(3,'Progetto',2),textvariable=self.project_filter,values=('Tutti',),state='readonly',width=11);self.project_options.pack(fill='x')
+        self.state_options=ttk.Combobox(field(4,'Stato',2),textvariable=self.state_filter,values=('Tutti',),state='readonly',width=11);self.state_options.pack(fill='x')
+        for variable in (self.search,self.app_filter,self.project_filter,self.state_filter,self.period_filter):variable.trace_add('write',self.filter_changed)
+        catalog_label=ttk.Label(self.pick_page,textvariable=self.catalog_status,style='Muted.TLabel',wraplength=720);catalog_label.pack(fill='x',pady=(6,8))
+        catalog_label.bind('<Configure>',lambda e:catalog_label.configure(wraplength=max(120,e.width-4)),add='+')
+        chat_table=ttk.Frame(self.pick_page);chat_table.pack(fill='both',expand=True);chat_table.columnconfigure(0,weight=1);chat_table.rowconfigure(0,weight=1)
+        self.chat_list=ttk.Treeview(chat_table,columns=('app','title','session','group','state','activity'),show='headings',height=6,selectmode='extended')
+        for col,label,width in [('app','App',60),('title','Chat',230),('session','ID sessione',100),('group','Progetto',160),('state','Stato',150),('activity','Ultima attività',110)]:
+            self.chat_list.heading(col,text=label,anchor='w');self.chat_list.column(col,width=width,minwidth=60,anchor='w')
+        self.chat_list.grid(row=0,column=0,sticky='nsew')
+        for orient,axis,r,c,sticky in [('vertical','y',0,1,'ns'),('horizontal','x',1,0,'ew')]:
+            bar=AutoScrollbar(chat_table,orient=orient,command=getattr(self.chat_list,axis+'view'));bar.grid(row=r,column=c,sticky=sticky);self.chat_list.configure(**{axis+'scrollcommand':bar.set})
+        self.empty_chats=ttk.Label(chat_table,text='Caricamento delle chat…',style='Muted.TLabel',justify='center',wraplength=430)
+        self.chat_list.bind('<<TreeviewSelect>>',self.choose_chat);self.chat_list.bind('<Button-1>',self.click_chat)
+        self.chat_list.bind('<space>',lambda _:self.toggle_chat_row(self.chat_list.focus()))
+        selected_bar=ttk.Frame(self.pick_page);selected_bar.pack(fill='x',pady=(10,0))
+        self.target_label=tk.StringVar(value='Nessuna chat selezionata')
+        ttk.Label(selected_bar,textvariable=self.target_label,wraplength=380).pack(side='left',fill='x',expand=True)
+        self.clear_targets_button=ttk.Button(selected_bar,text='Svuota selezione',command=self.clear_targets,state='disabled');self.clear_targets_button.pack(side='right')
+        self.refresh_button=ttk.Button(selected_bar,text='Aggiorna elenco',command=self.refresh);self.refresh_button.pack(side='right',padx=8)
+        ttk.Label(self.pick_page,text='Scegli una o più chat, poi Continua. Clicca una riga per aggiungerla o toglierla; la selezione resta conservata quando cambi filtro.',style='Muted.TLabel',wraplength=720).pack(fill='x',pady=(12,0))
+        # The common parent lets the same editor live below the list or in New.
+        self.write_page=ttk.Frame(self)
+        self.composer_title=tk.StringVar(value='Messaggio')
+        self.composer_label=ttk.Label(self.write_page,textvariable=self.composer_title,style='Section.TLabel');self.composer_label.pack(fill='x',pady=(0,6))
+        composer=ttk.Frame(self.write_page);composer.pack(fill='both',expand=True)
+        self.message=tk.Text(composer,bg='#f7f9fc',fg='#17243b',height=4,width=1,wrap='word',undo=True,font=('Segoe UI',11),relief='flat',padx=12,pady=10,highlightthickness=1,highlightbackground='#dce4f0')
+        self.message.insert('1.0',DEFAULT_MESSAGE)
+        scroll=AutoScrollbar(composer,orient='vertical',command=self.message.yview);self.message.configure(yscrollcommand=scroll.set)
+        scroll.pack(side='right',fill='y');self.message.pack(side='left',fill='both',expand=True)
+        timing=ttk.Frame(self.write_page);timing.pack(fill='x',pady=(8,0))
+        self.minutes=tk.StringVar(value='15');self.repeat=tk.BooleanVar(value=True);self.send_when_active=tk.BooleanVar(value=False);self.send_when_present=tk.BooleanVar(value=False)
+        ttk.Label(timing,text='Frequenza').pack(side='left',padx=(0,10))
+        ttk.Combobox(timing,textvariable=self.minutes,values=(5,10,15,30,60),width=7).pack(side='left');ttk.Label(timing,text='minuti').pack(side='left',padx=8)
+        options=ttk.Frame(self.write_page);options.pack(fill='x',pady=(4,0))
+        for col,(label,var,hint) in enumerate([
+            ('Ripeti nel tempo',self.repeat,'Acceso: ripete il messaggio all’intervallo scelto. Spento: invia una sola volta.'),
+            ('Invia anche mentre la chat lavora',self.send_when_active,'Acceso: consente l’invio o l’accodamento mentre la chat lavora. Spento: aspetta che sia libera.'),
+            ('Invia anche mentre uso il PC',self.send_when_present,'Acceso: consente l’invio nativo senza prendere il focus. Spento: attende l’inattività. La digitazione e le bozze restano protette.')]):
+            options.columnconfigure(col,weight=1,uniform='options');Switch(options,text=label,variable=var,help_text=hint).grid(row=0,column=col,sticky='ew',padx=(0,10 if col<2 else 0),pady=2)
+        summary=ttk.Frame(self.write_page);summary.pack(fill='x',pady=(5,0));summary.columnconfigure(0,weight=3);summary.columnconfigure(1,weight=2)
+        self.preview=tk.StringVar();self.recipient_summary=tk.StringVar()
+        self.preview_label=ttk.Label(summary,textvariable=self.preview,style='Muted.TLabel',wraplength=430);self.preview_label.grid(row=0,column=0,sticky='nw',padx=(0,12))
+        self.recipient_label=ttk.Label(summary,textvariable=self.recipient_summary,style='Muted.TLabel',wraplength=260);self.recipient_label.grid(row=0,column=1,sticky='nw')
+        summary.bind('<Configure>',lambda e:(self.preview_label.configure(wraplength=max(160,int(e.width*.6)-12)),self.recipient_label.configure(wraplength=max(120,int(e.width*.4)-8))),add='+')
+        self.status_label=ttk.Label(self.write_page,textvariable=self.status,foreground='#a44324',wraplength=720)
+        self.status_label.pack(fill='x',pady=(4,0))
+        bar=ttk.Frame(self.write_page);bar.pack(fill='x',pady=(8,0));self.editor_actions=bar
+        self.commit_button=ttk.Button(bar,text='Salva modifiche',command=self.activate,style='Primary.TButton');self.commit_button.pack(side='right')
+        self.save_text_button=ttk.Button(bar,text='Salva nei messaggi',command=lambda:self.library_callback());self.save_text_button.pack(side='right',padx=(0,8))
+        ttk.Button(bar,text='Usa messaggio salvato',command=self.choose_saved_message).pack(side='right',padx=(0,8))
+        self.history_button=ttk.Button(bar,text='Registro invii',command=self.show_history);self.history_button.pack(side='right',padx=(0,8))
+        self.status.trace_add('write',self.show_status)
+        self.show_status()
+        for variable in (self.minutes,self.repeat,self.send_when_active,self.send_when_present):variable.trace_add('write',lambda *_:self.update_preview())
         self.editor_baseline=self.editor_signature()
         self.render_jobs()
-        if len(self.job_list.get_children()) == 1:
-            self.job_list.selection_set(self.job_list.get_children()[0])
-        self.after(500, self.poll)
+        self.after(500,self.poll)
+
+    def choose_saved_message(self):
+        from message_library import MessageLibraryChooser
+        MessageLibraryChooser(self,self.use_saved_message)
+
+    def show_status(self,*_):
+        if self.status.get():self.status_label.pack(fill='x',pady=(4,0),before=self.editor_actions)
+        else:self.status_label.pack_forget()
+
+    def click_job(self,event):
+        if self.job_list.identify_region(event.x,event.y)=='cell' and self.job_list.identify_column(event.x)=='#1':
+            job_id=self.job_list.identify_row(event.y)
+            if job_id:self.toggle_job_id(job_id)
+            return 'break'
 
     def show_editor(self):
         self.list_view.pack_forget()
@@ -179,18 +154,37 @@ class MessagesPanel(ttk.Frame):
                 return False
         self.message.delete('1.0', 'end')
         self.message.insert('1.0', text)
-        if not self.editor_visible:self.show_editor()
-        if self.targets:self.next_step()
-        self.status.set('Messaggio riutilizzato nell’editor. Controlla destinatari e opzioni prima di salvare la programmazione.')
+        if self.selected_job:self.show_inline()
+        else:
+            if not self.editor_visible:self.show_editor()
+            if self.targets:self.next_step()
+        self.status.set('')
         return True
+
+    def show_inline(self):
+        self.editor.pack_forget()
+        self.pick_page.pack_forget()
+        self.list_view.pack(fill='both',expand=True)
+        self.inline_hint.pack_forget()
+        self.write_page.pack_forget()
+        self.write_page.pack(in_=self.inline_host,fill='both',expand=True)
+        self.editor_visible=False;self.editor_step=2
+        self.commit_button.configure(text='Salva modifiche')
+        self.history_button.pack(side='right',padx=(0,8))
+        self.composer_title.set('Messaggio · '+(self.target or {}).get('title',''))
+        self.recipient_label.grid_remove()
+        self.update_preview()
 
     def show_list(self):
         self.editor.pack_forget()
         self.list_view.pack(fill="both", expand=True)
         self.editor_visible = False
+        if self.selected_job:self.show_inline()
+        else:
+            self.write_page.pack_forget()
+            self.inline_hint.pack(anchor='w',pady=12)
 
     def show_pick(self):
-        self.commit_button.pack_forget()
         self.write_page.pack_forget()
         self.pick_page.pack(fill="both", expand=True)
         self.editor_step = 1
@@ -198,27 +192,33 @@ class MessagesPanel(ttk.Frame):
         self.back_button.configure(text="← Messaggi")
         self.continue_button.pack(side='right')
         self.continue_button.configure(text=f'Continua ({len(self.targets)}) →')
-        self.status.set('Scegli una o più chat, poi premi Continua. Clicca una riga per aggiungerla o toglierla; le selezioni restano conservate quando cambi i filtri.')
+        self.status.set('')
 
     def editor_back(self):
-        self.show_pick() if self.editor_step == 2 else self.show_list()
+        if self.selected_job:self.show_inline()
+        else:self.show_pick() if self.editor_step == 2 else self.show_list()
 
     def next_step(self):
         if not self.targets:
             self.status.set("Scegli almeno una chat per continuare.")
             return
+        if self.selected_job:
+            self.show_inline();return
         self.pick_page.pack_forget()
-        self.write_page.pack(fill="both", expand=True)
+        self.write_page.pack_forget()
+        self.write_page.pack(in_=self.editor,fill="both", expand=True)
         self.editor_step = 2
         self.editor_title.set("2 · Scrivi e programma")
         self.back_button.configure(text="← Destinatari")
         self.continue_button.pack_forget()
-        self.commit_button.configure(text='Salva modifiche' if self.selected_job else 'Attiva programmazione')
-        self.commit_button.pack(side='right')
+        self.commit_button.configure(text='Attiva programmazione')
+        self.history_button.pack_forget()
+        self.composer_title.set('Messaggio')
+        self.recipient_label.grid()
         names = "; ".join(f"{r['app'].title()} · {r['title']}" for r in self.targets)
         self.recipient_summary.set(f"Destinatari ({len(self.targets)}): {names}")
         self.update_preview()
-        self.status.set('Modifica il testo e le opzioni, poi salva in alto a destra.' if self.selected_job else 'Controlla testo e opzioni, poi attiva in alto a destra.')
+        self.status.set('')
 
     def update_preview(self):
         self.last_preview = time.monotonic()
@@ -229,11 +229,9 @@ class MessagesPanel(ttk.Frame):
             when = clock_label(time.time() + minutes * 60, time.time())
             repetition = f"ogni {minutes:g} minuti" if self.repeat.get() else "una sola volta"
             previous=next((job for job in load_jobs() if job['id']==self.selected_job),None)
-            text=(f"{len(self.targets)} chat · {repetition}. La programmazione resta in pausa dopo il salvataggio." if previous and not previous.get('enabled') else
-                  f"{len(self.targets)} chat · {repetition}. Le modifiche ai tempi o al testo ricalcolano il prossimo invio dal salvataggio." if previous else
+            text=(f"{repetition.capitalize()} · In pausa" if previous and not previous.get('enabled') else
+                  f"{repetition.capitalize()} · {getattr(self,'display_states',{}).get(previous['id'],{}).get('next_precise','')}" if previous else
                   f"{len(self.targets)} chat · {repetition}. Primo invio tra {minutes:g} min dal salvataggio, alle {when}.")
-            if getattr(self, 'send_when_present', None) is not None and self.send_when_present.get():
-                text += ' Invio in background consentito durante l’uso del PC.'
             if load_config().get("paused"):
                 text += " Sentinella è in pausa: gli invii aspettano la ripresa."
             if self.preview.get() != text:
@@ -279,8 +277,10 @@ class MessagesPanel(ttk.Frame):
             return
         if self.editor_baseline is not None and self.editor_signature()!=self.editor_baseline:
             if self.selected_job==job['id']:
-                self.list_view.pack_forget();self.editor.pack(fill='both',expand=True);self.editor_visible=True;self.next_step();return
-            if not messagebox.askyesno('Modifiche non salvate','Scartare le modifiche nell’editor e aprire questa programmazione?',parent=self):return
+                self.show_inline();return
+            if not messagebox.askyesno('Modifiche non salvate','Scartare le modifiche nell’editor e aprire questa programmazione?',parent=self):
+                if self.selected_job in self.job_list.get_children():self.job_list.selection_set(self.selected_job)
+                return
         self.selected_job = job["id"]
         self.targets = [job]
         self.target = job
@@ -292,8 +292,8 @@ class MessagesPanel(ttk.Frame):
         self.send_when_present.set(job.get('send_when_present', True))
         self.editor_baseline=self.editor_signature()
         self.update_target_summary()
-        self.show_editor()
-        self.next_step()
+        self.status.set('')
+        self.show_inline()
 
     def toggle_selected(self):
         selected = self.job_list.selection()
@@ -384,7 +384,7 @@ class MessagesPanel(ttk.Frame):
         self.catalog_status.set(text + (" · " + " · ".join(self.scan_errors) if self.scan_errors else ""))
 
     def choose_chat(self, _=None):
-        if self.rendering_chats:
+        if self.rendering_chats or not self.editor_visible or self.editor_step != 1:
             return
         visible = {self.identity(row) for row in self.chats.values()}
         chosen = {self.identity(r): r for r in self.targets if self.identity(r) not in visible}
@@ -450,7 +450,7 @@ class MessagesPanel(ttk.Frame):
                 saved.append(job_id)
             save_jobs(jobs)
             self.selected_job = saved[0] if len(saved) == 1 else None
-            self.status.set(f"{len(saved)} programmazioni salvate. " + ("Sentinella è in pausa globale." if load_config().get("paused") else "Opzioni aggiornate; scadenza mantenuta." if preserved_schedule else "Primo invio dopo l'intervallo scelto."))
+            self.status.set('Modifiche salvate.' if preserved_schedule else 'Programmazione salvata.')
             store = TimerStore(ROOT / "logs" / "messages.sqlite3")
             try:
                 for item in jobs:
@@ -465,24 +465,13 @@ class MessagesPanel(ttk.Frame):
             self.status.set(str(exc))
 
     def choose_job(self, _=None):
-        selected = self.job_list.selection()
-        jobs = load_jobs()
-        active = bool(selected) and all(j.get("enabled") for j in jobs if j["id"] in selected)
-        self.toggle_job.configure(text="Metti in pausa" if active else "Riprendi messaggio", state="normal" if selected else "disabled")
-        self.edit_button.configure(state="normal" if len(selected) == 1 else "disabled")
-        job = next((j for j in jobs if selected and j["id"] == selected[0]), None)
-        if job:
-            state = self.display_states.get(job["id"], {})
-            options = 'Anche mentre la chat lavora' if job.get('send_when_active') else 'Quando la chat è libera'
-            options += ' · Anche durante l’uso del PC (in background)' if job.get('send_when_present', True) else ' · Dopo l’inattività del PC'
-            self.job_detail.set(f"{job['title']} · {state.get('status','')}\n{state.get('frequency', '')} · Scadenza prevista: {state.get('scheduled_at', '—')}\n{options}\n{state.get('detail', '')}\n\n{job['message']}")
-        if hasattr(self, 'detail_text'):
-            detail = self.job_detail.get() if job else 'Seleziona una programmazione per leggere testo, frequenza e motivo del rinvio.'
-            if detail != getattr(self, 'detail_value', None):
-                self.detail_value = detail
-                self.detail_text.configure(state='normal'); self.detail_text.delete('1.0', 'end')
-                self.detail_text.insert('1.0', detail)
-                self.detail_text.configure(state='disabled')
+        if self.rendering_jobs or self.editor_visible or self.loading_job:return
+        selected=self.job_list.selection()
+        if not selected:return
+        if selected[0]==self.selected_job:return
+        self.loading_job=True
+        try:self.edit_selected()
+        finally:self.loading_job=False
 
     def toggle_job_id(self, job_id):
         last_id, last_at = getattr(self, '_last_row_toggle', (None, 0))
@@ -532,16 +521,21 @@ class MessagesPanel(ttk.Frame):
         jobs = load_jobs()
         store = TimerStore(ROOT / "logs" / "messages.sqlite3")
         states = {r["id"]: r for r in store.rows()}
+        receipts={}
+        for row in store.history(outcome='confirmed'):
+            if row.get('at') is not None:receipts[row['job_id']]=max(row['at'],receipts.get(row['job_id'],0))
         store.db.close()
         existing = set(self.job_list.get_children())
         config = load_config()
         waiting_reason = action_block_reason(config)
         now = time.time()
         self.display_states = {}
+        self.rendering_jobs=True
         for job in jobs:
             display = schedule_display(job, states.get(job["id"]), config, now, waiting_reason)
             self.display_states[job["id"]] = display
-            values = ('Ⅱ Pausa' if job.get('enabled') else '▶ Riprendi', job["title"], display["status"], display["next_precise"], display["last_sent"])
+            last=clock_label(receipts[job['id']],now) if job['id'] in receipts else display['last_sent']
+            values = ('Ⅱ' if job.get('enabled') else '▶', job["title"], display["status"], display["next_precise"], last)
             if job["id"] in existing:
                 if tuple(self.job_list.item(job["id"], "values")) != values:
                     self.job_list.item(job["id"], values=values, tags=(display["activation"],))
@@ -550,6 +544,7 @@ class MessagesPanel(ttk.Frame):
                 self.job_list.insert("", "end", iid=job["id"], values=values, tags=(display["activation"],))
         for key in existing:
             self.job_list.delete(key)
+        self.rendering_jobs=False
         self.choose_job()
 
     def poll(self):
@@ -586,7 +581,7 @@ class MessagesPanel(ttk.Frame):
         try:
             if self.winfo_ismapped() and not self.editor_visible and time.monotonic() - self.last_render >= 1:
                 self.render_jobs()
-            elif self.winfo_ismapped() and self.editor_visible and self.editor_step == 2 and time.monotonic() - self.last_preview >= 5:
+            if self.winfo_ismapped() and self.editor_step == 2 and time.monotonic() - self.last_preview >= 5:
                 self.update_preview()
         except Exception as exc:
             self.status.set(f'Aggiornamento non riuscito: {exc}. Puoi riprovare.')

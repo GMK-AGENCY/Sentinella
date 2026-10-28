@@ -44,6 +44,8 @@ class Monitor:
         from loop_diagnostics import LoopDiagnostics
         self.diagnostics = LoopDiagnostics(LOGS / f"gui-stall-{self.run_id}.log")
         self.diagnostics.heartbeat()
+        from app_icon import set_process_identity
+        self.taskbar_identity_set = set_process_identity()
         self.root = tk.Tk()
         self.root.report_callback_exception = self.diagnostics.callback_error
         if "--background" in sys.argv:
@@ -68,7 +70,7 @@ class Monitor:
     def gui_heartbeat(self):
         from sentinel_launcher import atomic_json
         try:
-            atomic_json(LOGS / "gui-heartbeat.json", {"run_id": self.run_id, "pid": os.getpid(), "updated_at": time.time(), "poll_updated_at": getattr(self, "last_poll_success", time.time())})
+            atomic_json(LOGS / "gui-heartbeat.json", {"run_id": self.run_id, "pid": os.getpid(), "updated_at": time.time(), "poll_updated_at": getattr(self, "last_poll_success", time.time()), "taskbar_identity_set":getattr(self,'taskbar_identity_set',False)})
         except OSError as exc:
             try:
                 self.log({"type": "gui_heartbeat_write_error", "error": str(exc)})

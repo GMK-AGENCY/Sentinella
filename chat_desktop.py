@@ -3,7 +3,8 @@ import argparse
 import json
 from collections import Counter
 from approval_policy import normalize
-from automation_policy import action_block_reason, live_block_reason, idle_seconds, typing_keys_down
+from automation_policy import (action_block_reason, live_block_reason, idle_seconds,
+                               typing_keys_down, background_navigation_block_reason)
 from question_desktop import walk, native_controls, desktop_is_unlocked, question_card, chat_content_available
 from desktop_identity import app_window_handles
 
@@ -130,20 +131,30 @@ def timer_target(rows, job):
     return []
 
 
-def select_chat(config, app, title):
+def invoke_chat_choice(config, app, control, live_guard):
+    """Invoke one fresh, exact sidebar choice without focus or input injection."""
+    blocked = live_guard()
+    if blocked:
+        return {'app': app, 'action': 'none', 'reason': blocked}
+    invoke = control.GetInvokePattern()
+    blocked = live_guard() or background_navigation_block_reason(config, app)
+    if blocked:
+        return {'app': app, 'action': 'none', 'reason': blocked}
+    invoke.Invoke()
+    return {'app': app, 'action': 'selected_chat'}
+
+
+def select_chat(config, app, title, job=None, live_guard=None):
     blocked = action_block_reason(config)
     if blocked:
         return {"app": app, "action": "none", "reason": blocked}
     controls, current = snapshot(config, app)
-    choices = [(row, c) for row, c in entries(controls, app) if row["title"] == title and not row["ambiguous"]]
-    if len(choices) != 1:
+    rows = entries(controls, app)
+    choices = timer_target(rows, job) if job is not None else [(row, c) for row, c in rows if row["title"] == title and not row["ambiguous"]]
+    if len(choices) != 1 or choices[0][0]['ambiguous']:
         return {"app": app, "action": "none", "reason": "Chat non univoca o non disponibile"}
     if current != title:
-        blocked = live_block_reason()
-        if blocked:
-            return {"app": app, "action": "none", "reason": blocked}
-        choices[0][1].GetInvokePattern().Invoke()
-        return {"app": app, "action": "selected_chat"}
+        return invoke_chat_choice(config, app, choices[0][1], live_guard or live_block_reason)
     return {"app": app, "action": "none", "current_title": current}
 
 
@@ -165,10 +176,7 @@ def step(config, job, delivery, live_guard=None):
     if blocked:
         return {**result, "reason": blocked}
     if current != job["title"]:
-        if config.get("native_background_delivery"):
-            return {**result, "reason": "Cambio chat rinviato durante l'uso del PC"}
-        matches[0][1].GetInvokePattern().Invoke()
-        return {**result, "action": "selected_chat"}
+        return {**result, **invoke_chat_choice(config, app, matches[0][1], live_guard)}
     buttons = [c for c in controls if c.ControlTypeName == "ButtonControl"]
     if not job.get("send_when_active") and any(normalize(b.Name) in {"interrompi", "stop", "stop response", "interrompi risposta"} for b in buttons):
         return {**result, "reason": "Chat in elaborazione: invio rinviato"}
@@ -179,7 +187,7 @@ def step(config, job, delivery, live_guard=None):
     if len(edits) != 1:
         return {**result, "reason": "Campo messaggio non univoco"}
     edit = edits[0]
-    if job.get('send_when_present') and getattr(edit, 'HasKeyboardFocus', False) is True and typing_keys_down():
+    if job.get('send_when_present', True) and getattr(edit, 'HasKeyboardFocus', False) is True and typing_keys_down():
         return {**result, 'reason': 'Digitazione nel campo messaggio: attendo il rilascio della tastiera'}
     value = edit.GetValuePattern().Value
     if not value.strip() or normalize(value) == normalize(edit.Name):
@@ -233,8 +241,20 @@ def step(config, job, delivery, live_guard=None):
         local = walk(parent, limit=130, seconds=0.5, max_depth=9)
         sends = [c for c in local if c.ControlTypeName == "ButtonControl" and normalize(c.Name) in SEND and c.IsEnabled]
         if len(sends) == 1:
+            def validate_draft():
+                fresh, selected = snapshot(config, app)
+                matches = timer_target(entries(fresh, app), job)
+                if selected != job['title'] or len(matches) != 1 or matches[0][0]['ambiguous']:
+                    return False
+                composers = [c for c in fresh if c.ControlTypeName == 'EditControl' and c.Name in labels and c.IsEnabled]
+                if len(composers) != 1:
+                    return False
+                composer = composers[0]
+                if job.get('send_when_present', True) and getattr(composer, 'HasKeyboardFocus', False) is True and typing_keys_down():
+                    return False
+                return composer.GetValuePattern().Value == message
             return {**result, "action": "ready", "button": sends[0],
-                    'validate_draft': lambda: edit.GetValuePattern().Value == message}
+                    'validate_draft': validate_draft}
         if len(local) >= 130:
             break
         parent = parent.GetParentControl()

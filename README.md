@@ -8,7 +8,7 @@ Il timer gira nel programma: **non richiede una chat di controllo o automazioni 
 
 Requisiti: Windows 11 a 64 bit e le app desktop che si desidera controllare. **La versione Windows installabile include Python e tutte le dipendenze: non devi installare Python.** Non serve una chiave API OpenAI.
 
-1. Scarica `Sentinella-0.2.4-Windows-x64-Setup.exe` dalla release.
+1. Scarica `Sentinella-0.2.5-Windows-x64-Setup.exe` dalla release.
 2. Esegui l'installer per il tuo utente: non richiede diritti di amministratore.
 3. Avvia **Sentinella** dal menu Start. Il primo avvio è in pausa.
 4. In **Impostazioni**, premi **Rileva applicazioni**, scegli le funzioni e le cartelle già autorizzate, poi togli la pausa quando sei pronto.
@@ -31,7 +31,7 @@ Al primo avvio Sentinella è **in pausa**, con risposte automatiche, consensi, a
 
 ## Messaggi programmati
 
-Apri **Programmazioni**, seleziona una chat, scrivi il testo e imposta l'intervallo. Il primo invio parte dopo l'intervallo scelto, senza recuperare gli arretrati con una raffica.
+Apri **Programmazioni** e seleziona una riga: testo e opzioni si modificano direttamente sotto l’elenco. I comandi di salvataggio e riuso sono riuniti in basso. Solo **Nuova programmazione** usa la scelta dei destinatari seguita da Scrivi e programma. Il primo invio parte dopo l'intervallo scelto, senza recuperare gli arretrati con una raffica.
 
 La **Panoramica** mostra ogni messaggio con frequenza, prossima attività e ultima ricevuta disponibile. Il pulsante pausa/ripresa della riga agisce soltanto su quel messaggio; il doppio clic apre l'editor. Il menu della riga apre anche il relativo registro. Le programmazioni sospese e le bozze mostrano il motivo dell'attesa al posto di un conto alla rovescia. **Diagnostica** apre gli aggiornamenti dei componenti separatamente: un processo aggiornato non dimostra che un messaggio sia stato ricevuto.
 
@@ -41,13 +41,13 @@ La **Panoramica** mostra ogni messaggio con frequenza, prossima attività e ulti
 - Codex viene identificato attraverso l'ID della chat e il titolo verificato, non scegliendo una chat dal nome simile.
 - I titoli duplicati bloccano l'invio nativo. La chat deve essere disponibile nella barra laterale.
 - Il controllo **Invia anche mentre lavora** permette la consegna alla chat attiva tramite il suo pulsante nativo, su entrambe le applicazioni. Le altre programmazioni aspettano che la chat sia libera.
-- **Invia anche mentre uso il PC** consente gli invii nativi nella chat già aperta, anche mentre usi il PC, senza cambiare chat. Durante la digitazione nel campo messaggio aspetta una breve pausa. Se spento, vale l'inattività impostata. È spento per nuove programmazioni; i messaggi già configurati conservano il comportamento precedente. Cambiare soltanto queste opzioni mantiene la scadenza esistente.
+- **Invia anche mentre uso il PC** consente gli invii nativi durante l’uso del PC, selezionando la chat esatta quando l’app destinataria è in background, senza prendere il focus. Se stai usando un’altra chat nella stessa app, aspetta per non interromperti. Durante la digitazione nel campo messaggio aspetta una breve pausa. Se spento, vale l'inattività impostata. È spento per nuove programmazioni; i messaggi già configurati conservano il comportamento precedente. Cambiare soltanto queste opzioni mantiene la scadenza esistente.
 - Una bozza dell'utente, un dialogo aperto, una pausa o un'identità non verificabile impediscono l'invio.
 - La prenotazione viene salvata prima dell'invio. Un invio dall'esito incerto non viene ripetuto automaticamente.
 - Codex è indicato come consegnato soltanto dopo la lettura di un vero messaggio utente nello storico della chat corretta. Il confronto ammette esclusivamente il ritorno a capo terminale aggiunto dal compositore nativo, registrandolo nella ricevuta.
 - Se il timer viene modificato durante una consegna, la ricevuta della vecchia versione non azzera il nuovo timer.
 
-Le letture non cambiano focus. Le azioni che richiedono di cambiare chat aspettano l'inattività del PC. Quando la chat corretta è già aperta e l'applicazione destinataria è in background, il mittente può usare i suoi controlli nativi senza simulare mouse o tastiera; controlla nuovamente il primo piano prima di ogni modifica. Le ricevute Claude provengono soltanto da messaggi utente della sessione identificata; la rimozione dello spazio terminale da parte dell'app viene dichiarata nella ricevuta. Un residuo esatto della bozza di Sentinella viene salvato integralmente in `logs/preserved-drafts` prima della pulizia; bozze diverse restano nel campo.
+Le letture non cambiano focus. Quando l’invio durante l’uso del PC è attivo, Sentinella può selezionare la chat esatta nell’applicazione in background tramite i controlli nativi, senza simulare mouse o tastiera. Ricontrolla il primo piano prima della selezione e dell’invio. Se l’app destinataria è in uso su un’altra chat, conserva il lavoro e attende. Le ricevute Claude provengono soltanto da messaggi utente della sessione identificata; la rimozione dello spazio terminale da parte dell'app viene dichiarata nella ricevuta. Un residuo esatto della bozza di Sentinella viene salvato integralmente in `logs/preserved-drafts` prima della pulizia; bozze diverse restano nel campo.
 
 ## Messaggi salvati
 

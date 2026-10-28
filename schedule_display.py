@@ -22,12 +22,18 @@ def _schedule_display(job, stored, config, now, waiting_reason=None):
     if not job.get("enabled") or config.get("paused"):
         return {**result, "status": "In pausa", "next": "Riprendi Sentinella" if config.get("paused") else "Riprendi il messaggio"}
     detail = result['detail'].casefold()
-    before_send = phase != 'uncertain' or state.get('local_stage') in {'reserved','drafted'}
+    before_send = phase != 'uncertain' or (state.get('local_stage') in {'reserved','drafted'} and 'bozza scomparsa' not in detail)
     pc_wait = ('cambio chat rinviato' in detail or
                due <= now and waiting_reason and waiting_reason.startswith('PC in uso') and not job.get('send_when_present'))
     if phase != 'finished' and before_send and pc_wait:
         return {**result, 'status':'In attesa', 'next':'PC in uso', 'hint':'Riprende automaticamente',
                 'detail':'Il messaggio è pronto. Sentinella riprende automaticamente dopo l’inattività configurata, senza interrompere quello che stai facendo. Non devi premere alcun pulsante.'}
+    if phase != 'finished' and before_send and 'applicazione in uso su un’altra chat' in detail:
+        return {**result,'status':'In attesa','next':job.get('app','App').title()+' in uso',
+                'hint':'Un’altra chat è in primo piano',
+                'detail':'Stai usando un’altra chat nell’app destinataria. L’invio riprende in background senza spostare il focus o sovrascrivere il testo che stai scrivendo.'}
+    if phase != 'finished' and before_send and 'impossibile verificare l’applicazione in primo piano' in detail:
+        return {**result,'status':'Chat da verificare','next':'Verifica disponibilità dell’app'}
     if phase == "uncertain":
         if 'bozza scomparsa' in result['detail'].casefold():
             return {**result, 'status':'Da verificare', 'next':'Controlla il registro'}

@@ -1,5 +1,5 @@
 #ifndef AppVersion
-#define AppVersion "0.2.4"
+#define AppVersion "0.2.5"
 #endif
 #ifndef BinaryDir
   #define BinaryDir "..\dist\Sentinella"
@@ -35,7 +35,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "{#BinaryDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{userprograms}\Sentinella"; Filename: "{app}\Sentinella.exe"; Check: not WizardNoIcons
+Name: "{userprograms}\Sentinella"; Filename: "{app}\Sentinella.exe"; AppUserModelID: "Sentinella.Desktop"; Check: not WizardNoIcons
 
 [Run]
 Filename: "{app}\Sentinella.exe"; Description: "Avvia Sentinella"; Flags: nowait postinstall skipifsilent

@@ -4,11 +4,64 @@ import struct
 import tempfile
 import tkinter as tk
 from tkinter import ttk
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
 
 import app_icon
 from ui_components import AutoScrollbar, PlaceholderEntry
+
+
+class ProcessIdentityTests(unittest.TestCase):
+    def test_stable_windows_process_identity_before_any_tk_in_source_and_frozen(self):
+        for frozen in (False,True):
+            identify=Mock(return_value=0)
+            shell=SimpleNamespace(shell32=SimpleNamespace(SetCurrentProcessExplicitAppUserModelID=identify))
+            with patch.object(app_icon.sys,'platform','win32'),patch.object(app_icon.sys,'frozen',frozen,create=True), \
+                    patch.object(app_icon.ctypes,'windll',shell,create=True),patch.object(app_icon.tk,'Tk',side_effect=AssertionError('Must run before Tk')):
+                self.assertTrue(app_icon.set_process_identity())
+            identify.assert_called_once_with('Sentinella.Desktop')
+            self.assertEqual(identify.argtypes,[app_icon.ctypes.c_wchar_p])
+            self.assertIs(identify.restype,app_icon.ctypes.c_long)
+
+    def test_unsupported_platform_does_not_call_windows_api(self):
+        shell=Mock()
+        with patch.object(app_icon.sys,'platform','linux'),patch.object(app_icon.ctypes,'windll',shell,create=True):
+            self.assertFalse(app_icon.set_process_identity())
+        self.assertEqual(shell.mock_calls,[])
+
+    def test_hresult_and_native_failures_do_not_block_startup(self):
+        identify=Mock()
+        shell=SimpleNamespace(shell32=SimpleNamespace(SetCurrentProcessExplicitAppUserModelID=identify))
+        with patch.object(app_icon.sys,'platform','win32'),patch.object(app_icon.ctypes,'windll',shell,create=True):
+            for code in (1,0x80004005,-2147467259):
+                identify.return_value=code
+                self.assertFalse(app_icon.set_process_identity())
+            for error in (OSError('API unavailable'),AttributeError('missing API'),TypeError('invalid API'),ValueError('invalid value'),RuntimeError('unavailable')):
+                identify.side_effect=error
+                self.assertFalse(app_icon.set_process_identity())
+
+    def test_windows_icons_apply_native_current_and_default_after_photo_fallback(self):
+        window=Mock();photo=Mock();photo.subsample.side_effect=lambda factor:f'photo-{factor}'
+        ico,png=app_icon.icon_paths();before={path:path.read_bytes() for path in (ico,png)}
+        with patch.object(app_icon.sys,'platform','win32'),patch.object(app_icon.tk,'PhotoImage',return_value=photo):
+            self.assertTrue(app_icon.set_window_icon(window))
+        self.assertEqual(window.method_calls,[call.iconphoto(True,'photo-32','photo-16','photo-8','photo-4','photo-2',photo),call.iconbitmap(default=str(ico)),call.iconbitmap(str(ico))])
+        self.assertIs(window._sentinella_icon_image,photo)
+        self.assertEqual(len(window._sentinella_icon_images),6)
+        self.assertEqual({path:path.read_bytes() for path in (ico,png)},before)
+
+    def test_each_icon_format_can_fall_back_and_both_failures_are_reported(self):
+        with patch.object(app_icon.sys,'platform','win32'):
+            window=Mock();window.iconbitmap.side_effect=tk.TclError('ICO unavailable')
+            with patch.object(app_icon.tk,'PhotoImage',return_value=Mock()):
+                self.assertTrue(app_icon.set_window_icon(window))
+            window=Mock()
+            with patch.object(app_icon.tk,'PhotoImage',side_effect=tk.TclError('PNG unavailable')):
+                self.assertTrue(app_icon.set_window_icon(window))
+                window.iconbitmap.assert_any_call(str(app_icon.icon_paths()[0]))
+                window.iconbitmap.side_effect=tk.TclError('ICO unavailable')
+                self.assertFalse(app_icon.set_window_icon(window))
 
 
 class UIComponentsTests(unittest.TestCase):
@@ -147,6 +200,7 @@ class UIComponentsTests(unittest.TestCase):
         before = {path: path.read_bytes() for path in (ico, png)}
         self.assertTrue(app_icon.set_window_icon(self.root))
         self.assertEqual(self.root._sentinella_icon_image.width(), 512)
+        self.assertEqual([image.width() for image in self.root._sentinella_icon_images],[16,32,64,128,256,512])
         for path, contents in before.items():
             self.assertEqual(path.read_bytes(), contents)
 

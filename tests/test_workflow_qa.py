@@ -189,6 +189,8 @@ class WorkflowQA(unittest.TestCase):
         self.assertEqual(len(self.panel.chat_list.get_children()), 1)
 
     def test_selected_chats_survive_app_filters(self):
+        self.panel.editor_visible=True
+        self.panel.editor_step=1
         self.panel.catalog = [self.row, self.other]
         self.panel.apply_filters()
         self.panel.toggle_chat_row("0")
@@ -203,7 +205,8 @@ class WorkflowQA(unittest.TestCase):
     def test_edit_paused_noop_preserves_identity_and_schedule(self):
         previous, original = self.seed(enabled=False)
         self.panel.edit_selected()
-        self.finish_scan()
+        self.assertFalse(self.panel.scan_running)
+        self.native.assert_not_called()
         self.panel.activate()
         saved = message_engine.load_jobs()[0]
         self.assertFalse(saved["enabled"])
@@ -216,7 +219,8 @@ class WorkflowQA(unittest.TestCase):
     def test_edit_paused_changed_text_stays_paused_and_gets_new_version(self):
         previous, _ = self.seed(enabled=False)
         self.panel.edit_selected()
-        self.finish_scan()
+        self.assertFalse(self.panel.scan_running)
+        self.native.assert_not_called()
         self.panel.message.delete("1.0", "end")
         self.panel.message.insert("1.0", "Testo cambiato")
         self.panel.activate()
@@ -242,7 +246,8 @@ class WorkflowQA(unittest.TestCase):
     def test_cancel_new_keeps_work_in_progress_and_saved_pause(self):
         previous, _ = self.seed(enabled=False)
         self.panel.edit_selected()
-        self.finish_scan()
+        self.assertFalse(self.panel.scan_running)
+        self.native.assert_not_called()
         self.panel.message.delete("1.0", "end")
         self.panel.message.insert("1.0", "Bozza non salvata")
         self.panel.minutes.set("31")
@@ -261,7 +266,8 @@ class WorkflowQA(unittest.TestCase):
         message_engine.save_jobs([previous, second])
         self.panel.render_jobs()
         self.panel.edit_selected()
-        self.finish_scan()
+        self.assertFalse(self.panel.scan_running)
+        self.native.assert_not_called()
         self.panel.message.delete("1.0", "end")
         self.panel.message.insert("1.0", "Bozza da proteggere")
         self.panel.job_list.selection_set(second["id"])

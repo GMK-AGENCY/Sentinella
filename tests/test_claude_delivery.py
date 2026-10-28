@@ -14,6 +14,68 @@ from chat_desktop import step
 
 
 class ClaudeDeliveryTests(unittest.TestCase):
+    def queued_chain(self, enqueue_skew=.001):
+        command_at = time.time()
+        stamp = lambda value: datetime.fromtimestamp(value, timezone.utc).isoformat()
+        command_id = '11111111-1111-4111-8111-111111111111'
+        delivery_id = '22222222-2222-4222-8222-222222222222'
+        text = self.job['message'].rstrip(' ')
+        return [dict(type='queue-operation', operation='enqueue', timestamp=stamp(command_at+enqueue_skew),
+                     sessionId='session', content=text),
+                dict(type='attachment', uuid='33333333-3333-4333-8333-333333333333',
+                     timestamp=stamp(command_at), sessionId='session', isSidechain=False,
+                     attachment=dict(type='queued_command', prompt=text, source_uuid=command_id,
+                                     delivery_id=delivery_id, commandMode='prompt', origin={'kind':'human'},
+                                     humanTurn=True, timestamp=stamp(command_at))),
+                dict(type='queue-operation', operation='remove', reason='absorbed_mid_turn',
+                     timestamp=stamp(command_at+1.4), sessionId='session', content=text,
+                     commandUuid=command_id, deliveryId=delivery_id)]
+
+    def write_records(self, rows):
+        self.history.write_text(''.join(json.dumps(row)+'\n' for row in rows), encoding='utf-8')
+
+    def test_mid_turn_enqueue_millisecond_skew_is_accepted_only_with_absorption_chain(self):
+        for skew in (0, .001, -.001, .009):
+            with self.subTest(skew=skew):
+                self.write_records(self.queued_chain(skew))
+                receipt = read_receipt(self.identity, self.job['message'], 0)
+                self.assertEqual(receipt['origin'], 'human_mid_turn')
+                self.assertEqual(receipt['text'], self.job['message'].rstrip(' '))
+                self.assertLessEqual(abs(receipt['enqueue_at']-receipt['at']), .010)
+                self.assertEqual(receipt['delivery_id'], '22222222-2222-4222-8222-222222222222')
+
+    def test_mid_turn_skew_beyond_bound_or_ambiguous_enqueue_is_not_a_receipt(self):
+        import copy
+        for invalid in ('too_late', 'too_early', 'duplicate', 'other_session', 'envelope_time', 'assistant_origin', 'wrong_ids'):
+            with self.subTest(invalid=invalid):
+                sample = self.queued_chain(.011 if invalid=='too_late' else -.011 if invalid=='too_early' else .001)
+                if invalid == 'duplicate':
+                    sample.insert(1, copy.deepcopy(sample[0]))
+                elif invalid == 'other_session':
+                    sample[0]['sessionId'] = 'other-session'
+                elif invalid == 'envelope_time':
+                    sample[1]['timestamp'] = sample[0]['timestamp']
+                elif invalid == 'assistant_origin':
+                    sample[1]['attachment']['origin']['kind'] = 'assistant'
+                elif invalid == 'wrong_ids':
+                    sample[-1]['commandUuid'] = '44444444-4444-4444-8444-444444444444'
+                self.write_records(sample)
+                self.assertIsNone(read_receipt(self.identity, self.job['message'], 0))
+
+    def test_new_mid_turn_receipt_reconciles_existing_reservation_without_resending(self):
+        self.delivery.prepare(self.job)
+        self.delivery.begin_send(self.job)
+        token = self.delivery.current(self.job)['token']
+        self.store.update(self.job, 'uncertain', 'Ricezione non confermata: nessun reinvio automatico')
+        self.write_records(self.queued_chain(.001))
+        result = self.delivery.reconcile(self.job, self.store.rows()[0])
+        self.assertEqual(result['action'], 'receipt_confirmed')
+        self.assertEqual(self.delivery.current(self.job)['token'], token)
+        self.assertEqual(self.delivery.current(self.job)['stage'], 'confirmed')
+        self.assertEqual(self.store.db.execute('SELECT count(*) FROM claude_timer_deliveries').fetchone()[0], 1)
+        self.assertIsNone(self.delivery.reconcile(self.job, self.store.rows()[0]))
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM message_events WHERE event='Consegnato con ricevuta'").fetchone()[0], 1)
+
     def test_human_mid_turn_requires_exact_enqueue_attachment_and_absorption_ids(self):
         import copy
         stamp = datetime.now(timezone.utc).isoformat()

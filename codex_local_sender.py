@@ -120,7 +120,7 @@ def tick(store=None, bridge=None, now=None, metadata=thread_metadata, observe=ob
     real_clock = now is None
     now = time.time() if real_clock else now
     selected_job = {}
-    delivery_config = lambda: native_delivery_config(allow_present=selected_job.get('send_when_present'))
+    delivery_config = lambda: native_delivery_config(allow_present=selected_job.get('send_when_present', True))
     adapter = adapter or (lambda config, job, delivery: step(config, job, delivery, live_guard=lambda: action_block_reason(delivery_config())))
     owned = store is None
     store = store or TimerStore(ROOT / "logs/messages.sqlite3")
@@ -173,6 +173,8 @@ def tick(store=None, bridge=None, now=None, metadata=thread_metadata, observe=ob
                     return {"action": "uncertain", "job": job["id"], "reason": "Prenotazione preesistente: solo riconciliazione, nessun reinvio"}
                 if pending["version"] != job["version"]:
                     return {"action": "changed_or_disabled", "job": job["id"], "reason": "Bozza di una versione precedente: nessun invio"}
+                if 'bozza scomparsa' in state.get('detail', '').casefold():
+                    return {'action': 'uncertain', 'job': job['id'], 'reason': state['detail']}
             elif state["phase"] in {"uncertain", "finished"} or (state["due"] > now and not verification):
                 continue
             blocked = action_block_reason(config)
@@ -183,9 +185,10 @@ def tick(store=None, bridge=None, now=None, metadata=thread_metadata, observe=ob
             if status == "active" and not job.get("send_when_active"):
                 return {"action": "waiting_for_chat", "job": job["id"]}
             if current != job["title"]:
-                if config.get("native_background_delivery"):
-                    return {"action": "waiting_for_idle", "job": job["id"], "reason": "Cambio chat rinviato: nessuna navigazione durante l'uso del PC"}
-                result = select_chat(config, "codex", job["title"])
+                result = select_chat(config, "codex", job["title"], job=job,
+                                     live_guard=lambda: action_block_reason(bridge.config_reader()))
+                if result.get('reason'):
+                    store.update(job, state['phase'], result['reason'])
                 return {**result, "job": job["id"]}
             if not pending:
                 offset = Path(meta["rollout_path"]).stat().st_size
@@ -213,6 +216,15 @@ def tick(store=None, bridge=None, now=None, metadata=thread_metadata, observe=ob
                 current, status = observe(config, job)
                 if current != job["title"] or (status == "active" and not job.get("send_when_active")):
                     return {"action": "chat_changed_before_send", "job": job["id"]}
+                latest = next((item for item in bridge.jobs() if item['id'] == job['id']), None)
+                if latest is None or any(latest.get(key, default) != job.get(key, default)
+                                         for key, default in (('send_when_active', False), ('send_when_present', True))):
+                    return {'action': 'changed_or_disabled', 'job': job['id']}
+                blocked = action_block_reason(bridge.config_reader())
+                if blocked:
+                    return {'action': 'none', 'job': job['id'], 'reason': blocked}
+                if not result.pop('validate_draft', lambda: True)():
+                    return {'action': 'none', 'job': job['id'], 'reason': 'Chat o bozza cambiata prima dell’invio: conservata'}
                 changed = db.execute("UPDATE local_codex_deliveries SET stage='sending' WHERE token=? AND stage='drafted'", (pending["token"],)).rowcount; db.commit()
                 if changed != 1:
                     return {"action": "already_sending"}

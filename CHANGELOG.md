@@ -1,5 +1,13 @@
 # Modifiche
 
+## 0.2.5
+
+- Modifica delle programmazioni direttamente sotto l’elenco, senza aprire il percorso di creazione. Editor unico, protezione delle modifiche non salvate e comandi riuniti in basso.
+- Scelta dei messaggi salvati con anteprima contenuta nel bordo e pulsante Usa a destra; intestazioni degli elenchi allineate ai dati.
+- Con invio durante uso PC attivo, selezione della chat esatta nell’app in background. L’app in uso su un’altra chat e le consegne incerte mantengono motivi distinti.
+- Ricevute Claude durante il lavoro correlate anche con uno scarto di pochi millisecondi, conservando identità, testo e correlazione univoca degli eventi umani.
+- Identità esplicita di Sentinella per l’icona nella barra delle applicazioni Windows, coerente con il collegamento dell’installer.
+
 ## 0.2.4
 
 - Messaggi salvati con ricerca nel campo, comandi delle raccolte espliciti e azioni Usa, Elimina e Salva riunite in basso a destra.

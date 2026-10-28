@@ -217,7 +217,7 @@ def build_workspace(app):
         style.configure(state+'.TButton', background=color, foreground='white', font=('Segoe UI', 11, 'bold'), padding=(18,12))
         style.map(state+'.TButton', background=[('active',hover),('pressed',hover)], foreground=[('active','white')])
     style.configure('Treeview', font=('Segoe UI', 10), rowheight=36, background='white', fieldbackground='white', foreground=INK, borderwidth=0)
-    style.configure('Treeview.Heading', background='#f0f4fa', foreground=MUTED, font=('Segoe UI', 10, 'bold'), padding=(8, 10), relief='flat')
+    style.configure('Treeview.Heading', background='#f0f4fa', foreground=MUTED, font=('Segoe UI', 10, 'bold'), padding=(2, 10), relief='flat')
     style.map('Treeview', background=[('selected', '#e5edff')], foreground=[('selected', '#173a85')])
     style.configure('TLabelframe', background='white', borderwidth=0)
     style.configure('TLabelframe.Label', background='white', foreground=INK, font=('Segoe UI', 12, 'bold'))
@@ -326,24 +326,6 @@ def build_workspace(app):
     navigate()
 
 
-def bind_job_actions(tree,panel,show_editor,refresh=None):
-    """The first column toggles; double-clicking a data cell opens its editor."""
-    def click(event):
-        if tree.identify_region(event.x,event.y)!='cell' or tree.identify_column(event.x)!='#1': return
-        job_id=tree.identify_row(event.y)
-        if job_id:
-            tree.selection_set(job_id); panel.toggle_job_id(job_id)
-            if refresh: refresh()
-        return 'break'
-    def double(event):
-        if tree.identify_column(event.x)=='#1': return 'break'
-        job_id=tree.identify_row(event.y)
-        if job_id:
-            tree.selection_set(job_id); panel.edit_job_id(job_id); show_editor()
-            return 'break'
-    tree.bind('<Button-1>',click,add='+');tree.bind('<Double-1>',double)
-
-
 def update_insights(app, config):
     if not hasattr(app, 'dashboard_agenda'): return
     from dashboard_model import snapshot
@@ -358,113 +340,6 @@ def update_insights(app, config):
         except (OSError,ValueError):health[key]={}
     model=snapshot(config,jobs,states,history,health,time.time())
     app.dashboard_agenda.render(model)
-
-
-def modernize_messages(panel):
-    """Keep the existing editor controls and callbacks, replace their composition."""
-    panel.configure(padding=20)
-    children=panel.list_view.winfo_children()
-    heading=children[0]
-    for child in heading.winfo_children():
-        if isinstance(child, ttk.Label): child.configure(text='Programmazioni salvate')
-        elif isinstance(child, ttk.Button): child.configure(text='+ Nuova programmazione')
-    children[1].pack_forget()
-    actions=panel.edit_button.master
-    panel.job_list.destroy();actions.destroy()
-    old_detail=next(w for w in children if isinstance(w,ttk.Label) and str(w.cget('textvariable'))==str(panel.job_detail))
-    old_detail.pack_forget()
-    split=ttk.Panedwindow(panel.list_view,orient='vertical');split.pack(fill='both',expand=True)
-    listing=ttk.Frame(split);split.add(listing,weight=2)
-    listing.rowconfigure(0,weight=1);listing.columnconfigure(0,weight=1)
-    panel.job_list=ttk.Treeview(listing,columns=('action','title','state','next','last'),show='headings',selectmode='extended',height=5)
-    for col,label in (('action','Comando'),('title','Destinatario'),('state','Stato'),('next','Prossima attività'),('last','Ultima consegna')):panel.job_list.heading(col,text=label,anchor='w')
-    panel.job_list.column('action',width=100,minwidth=95,stretch=False,anchor='center')
-    bind_job_actions(panel.job_list,panel,lambda:None)
-    panel.job_list.grid(row=0,column=0,sticky='nsew')
-    panel.job_list.bind('<<TreeviewSelect>>',panel.choose_job)
-    scroll=AutoScrollbar(listing,orient='vertical',command=panel.job_list.yview);scroll.grid(row=0,column=1,sticky='ns');panel.job_list.configure(yscrollcommand=scroll.set)
-    horizontal=AutoScrollbar(listing,orient='horizontal',command=panel.job_list.xview);horizontal.grid(row=1,column=0,sticky='ew');panel.job_list.configure(xscrollcommand=horizontal.set)
-    for col,width in (('title',180),('state',185),('next',180),('last',130)):
-        panel.job_list.column(col,width=width,minwidth=65)
-    panel.job_list.tag_configure('Attivo',foreground='#254c92')
-    panel.job_list.tag_configure('In pausa',foreground=MUTED);panel.job_list.tag_configure('Completato',foreground=MUTED)
-    detail=ttk.Frame(split,padding=(0,16));split.add(detail,weight=3)
-    actions=ttk.Frame(detail);actions.pack(fill='x',pady=(0,12))
-    panel.edit_button=ttk.Button(actions,text='Modifica',command=panel.edit_selected,state='disabled');panel.edit_button.pack(side='left')
-    panel.toggle_job=ttk.Button(actions,text='Metti in pausa',command=panel.toggle_selected,state='disabled');panel.toggle_job.pack(side='left',padx=8)
-    ttk.Button(actions,text='Metti in pausa tutte',command=panel.pause_all).pack(side='left')
-    ttk.Button(actions,text='Registro invii →',command=panel.show_history).pack(side='right',padx=8)
-    panel.detail_text=tk.Text(detail,height=5,wrap='word',font=('Segoe UI',10),bg='#f7f9fc',fg=INK,relief='flat',padx=12,pady=12,state='disabled')
-    detail_scroll=ttk.Scrollbar(detail,orient='vertical',command=panel.detail_text.yview)
-    panel.detail_text.configure(yscrollcommand=detail_scroll.set);detail_scroll.pack(side='right',fill='y')
-    panel.detail_text.pack(side='left',fill='both',expand=True)
-    # The editor is a separate workspace, not a modal; navigating back keeps WIP.
-    panel.editor_title.set('01  Destinatari')
-    old_message=panel.message
-    initial_text=old_message.get('1.0','end-1c')
-    composer=ttk.Frame(panel.write_page)
-    composer.pack(fill='both',expand=True,before=old_message,pady=(8,12))
-    old_message.destroy()
-    tools=ttk.Frame(panel.write_page);tools.pack(fill='x',before=composer,pady=(8,0))
-    panel.composer_label.pack_forget()
-    panel.composer_label.pack(in_=tools,side='left')
-    def choose_saved():
-        from message_library import MessageLibraryChooser
-        MessageLibraryChooser(panel,panel.use_saved_message)
-    save_template=ttk.Button(tools,text='Salva nei messaggi',command=lambda:panel.library_callback());save_template.pack(side='right')
-    ttk.Button(tools,text='Usa messaggio salvato',command=choose_saved).pack(side='right',padx=(8,8))
-    Tooltip(save_template,'Conserva solo questo testo nella raccolta, con un nome. Non salva la programmazione e non invia messaggi.')
-    panel.message=tk.Text(composer,bg='#f7f9fc',fg=INK,insertbackground=BLUE,height=4,width=1,wrap='word',undo=True,font=('Segoe UI',11),relief='flat',padx=12,pady=10,highlightthickness=1,highlightbackground='#dce4f0')
-    panel.message.insert('1.0',initial_text)
-    composer_scroll=AutoScrollbar(composer,orient='vertical',command=panel.message.yview)
-    panel.message.configure(yscrollcommand=composer_scroll.set);composer_scroll.pack(side='right',fill='y');panel.message.pack(side='left',fill='both',expand=True)
-    picker=panel.chat_list.master
-    catalog_label=ttk.Label(panel.pick_page,textvariable=panel.catalog_status,style='Muted.TLabel',wraplength=720)
-    catalog_label.pack(fill='x',pady=(6,8),before=picker)
-    catalog_label.bind('<Configure>',lambda e:catalog_label.configure(wraplength=max(120,e.width-4)),add='+')
-    panel.status_label.bind('<Configure>',lambda e:panel.status_label.configure(wraplength=max(120,e.width-4)),add='+')
-    picker.pack_configure(fill='x',expand=False)
-    panel.chat_list.configure(height=6)
-    picker_scroll=AutoScrollbar(picker,orient='horizontal',command=panel.chat_list.xview)
-    panel.chat_list.configure(xscrollcommand=picker_scroll.set)
-    picker_scroll.pack(side='bottom',fill='x',before=panel.chat_list)
-    def walk(widget):
-        for child in widget.winfo_children():
-            yield child
-            yield from walk(child)
-    switches=[w for w in walk(panel.write_page) if isinstance(w,Switch)]
-    if switches:
-        area=switches[0].master
-        preview=next(w for w in panel.write_page.winfo_children() if isinstance(w,ttk.Label) and str(w.cget('textvariable'))==str(panel.preview))
-        area.destroy()
-        area=ttk.Frame(panel.write_page);area.pack(fill='x',before=preview)
-        input_row=ttk.Frame(area);input_row.pack(fill='x')
-        ttk.Label(input_row,text='Frequenza').pack(side='left',padx=(0,12))
-        ttk.Combobox(input_row,textvariable=panel.minutes,values=(5,10,15,30,60),width=9).pack(side='left',padx=(0,8))
-        ttk.Label(input_row,text='minuti').pack(side='left')
-        Switch(area,text='Ripeti nel tempo',variable=panel.repeat,help_text='Acceso: ripete il messaggio all’intervallo scelto. Spento: invia una sola volta. Una bozza o una consegna incerta non vengono reinviate automaticamente.').pack(anchor='w',pady=(10,4))
-        Switch(area,text='Invia anche mentre la chat lavora',variable=panel.send_when_active,help_text='Acceso: il messaggio può essere ricevuto o accodato anche se la chat sta elaborando. Spento: attende che la chat sia libera. Vale per entrambe le applicazioni.').pack(anchor='w',pady=4)
-        if hasattr(panel, 'send_when_present'):
-            Switch(area,text='Invia anche mentre uso il PC',variable=panel.send_when_present,help_text='Acceso: consente l’invio nella chat già aperta senza cambiare chat o prendere il focus, anche mentre usi il PC. Le bozze modificate restano protette. Spento: attende la soglia di inattività configurata.').pack(anchor='w',pady=4)
-        preview.pack_configure(pady=(10,6))
-    for child in panel.write_page.winfo_children():
-        if isinstance(child,ttk.Button) and child.cget('text')=='Attiva programmazione':child.destroy()
-        if isinstance(child,ttk.Label) and str(child.cget('text')).startswith('Le bozze restano protette.'):child.destroy()
-    panel.recipient_label.pack_forget()
-    panel.preview_label.pack_forget()
-    summary=ttk.Frame(panel.write_page);summary.pack(fill='x',pady=(12,0))
-    summary.columnconfigure(0,weight=3,uniform='summary');summary.columnconfigure(1,weight=2,uniform='summary')
-    panel.preview_label.grid(in_=summary,row=0,column=0,sticky='nw',padx=(0,16))
-    panel.recipient_label.grid(in_=summary,row=0,column=1,sticky='nw')
-    summary.bind('<Configure>',lambda e:(panel.preview_label.configure(wraplength=max(160,int(e.width*0.6)-20)),panel.recipient_label.configure(wraplength=max(140,int(e.width*0.4)-8))),add='+')
-    selected_bar=next(child.master for child in panel.pick_page.winfo_children() for child in child.winfo_children() if isinstance(child,ttk.Label) and str(child.cget('textvariable'))==str(panel.target_label))
-    for widget in selected_bar.winfo_children():
-        if isinstance(widget,ttk.Label):widget.configure(wraplength=460)
-    for widget in walk(panel):
-        if isinstance(widget,ttk.Label):
-            try:
-                if int(widget.cget('wraplength'))>720: widget.configure(wraplength=720)
-            except (ValueError,tk.TclError): pass
 
 
 def build_settings(panel, parent, on_saved, open_logs, restart_reader):

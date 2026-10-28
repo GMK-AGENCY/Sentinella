@@ -128,13 +128,128 @@ class PolicyTests(unittest.TestCase):
             self.assertIn("Bozza presente", result["reason"])
             edit.GetValuePattern.return_value.SetValue.assert_not_called()
 
-    def test_background_sender_never_navigates_if_chat_changed_during_observation(self):
+    def test_background_navigation_with_unknown_foreground_does_not_select(self):
         job = {"app": "codex", "title": "Regia", "group": "Recenti", "ambiguous": False, "message": "Literal", "send_when_active": True}
         button = Mock()
-        with patch("chat_desktop.snapshot", return_value=([], "Other chat")), patch("chat_desktop.entries", return_value=[(job, button)]):
+        with patch("chat_desktop.snapshot", return_value=([], "Other chat")), patch("chat_desktop.entries", return_value=[(job, button)]), \
+             patch('automation_policy.idle_seconds', return_value=0), patch('automation_policy.foreground_app_state', return_value=None):
             result = step({"idle_seconds_before_actions": 0, "native_background_delivery": True}, job, {}, live_guard=lambda: None)
-        self.assertIn("Cambio chat rinviato", result["reason"])
-        button.GetInvokePattern.assert_not_called()
+        self.assertIn("Impossibile verificare", result["reason"])
+        button.GetInvokePattern.return_value.Invoke.assert_not_called()
+
+    def test_native_delivery_explicit_present_is_independent_of_active_chat(self):
+        from automation_policy import native_delivery_config
+        for app in ('codex', 'claude'):
+            config = {'idle_seconds_before_actions': 900, 'apps': {app: {'process_path': 'C:/Test/app.exe'}}}
+            with patch('automation_policy.idle_seconds', return_value=0):
+                allowed = native_delivery_config(lambda: config, app=app, allow_present=True)
+                self.assertTrue(allowed['native_background_delivery'])
+                self.assertEqual(allowed['idle_seconds_before_actions'], 0)
+                self.assertEqual(allowed['native_navigation_idle_seconds'], 900)
+                self.assertEqual(native_delivery_config(lambda: config, app=app, allow_present=False), config)
+                paused = {**config, 'paused': True}
+                self.assertEqual(native_delivery_config(lambda: paused, app=app, allow_present=True), paused)
+
+    def test_both_apps_select_exact_running_chat_in_background_without_focus(self):
+        for app in ('codex', 'claude'):
+            job = {'app': app, 'title': 'Exact target', 'group': 'Project', 'ambiguous': False,
+                   'message': 'Literal', 'send_when_active': True, 'send_when_present': True}
+            control = Mock()
+            with patch('chat_desktop.snapshot', return_value=([], 'Other chat')), \
+                 patch('chat_desktop.entries', return_value=[({**job, 'status': 'Working'}, control)]), \
+                 patch('automation_policy.idle_seconds', return_value=0), \
+                 patch('automation_policy.foreground_app_state', return_value=False):
+                result = step({'idle_seconds_before_actions': 0, 'native_background_delivery': True}, job, {}, live_guard=lambda: None)
+            self.assertEqual(result['action'], 'selected_chat')
+            control.GetInvokePattern.return_value.Invoke.assert_called_once_with()
+            control.SetFocus.assert_not_called()
+            control.Click.assert_not_called()
+
+    def test_foreground_other_chat_returns_specific_reason_without_navigation(self):
+        for app in ('codex', 'claude'):
+            job = {'app': app, 'title': 'Exact target', 'group': 'Project', 'ambiguous': False,
+                   'message': 'Literal', 'send_when_active': True, 'send_when_present': True}
+            control = Mock()
+            with patch('chat_desktop.snapshot', return_value=([], 'Other chat')), \
+                 patch('chat_desktop.entries', return_value=[(job, control)]), \
+                 patch('automation_policy.idle_seconds', return_value=0), \
+                 patch('automation_policy.foreground_app_state', return_value=True):
+                result = step({'idle_seconds_before_actions': 0, 'native_background_delivery': True}, job, {}, live_guard=lambda: None)
+            self.assertIn('Applicazione in uso su un’altra chat', result['reason'])
+            control.GetInvokePattern.return_value.Invoke.assert_not_called()
+
+    def test_present_and_active_flags_allow_ready_on_same_foreground_chat(self):
+        for app, label in (('codex', 'Lavora con Codex'), ('claude', 'Prompt')):
+            job = {'app': app, 'title': 'Exact target', 'group': 'Project', 'ambiguous': False,
+                   'message': 'Literal', 'send_when_active': True, 'send_when_present': True}
+            edit = Mock(ControlTypeName='EditControl', Name=label, IsEnabled=True, AriaRole='', HasKeyboardFocus=False)
+            edit.GetValuePattern.return_value.Value = 'Literal'
+            stop = Mock(ControlTypeName='ButtonControl', Name='Interrompi', IsEnabled=True, AriaRole='')
+            send = Mock(ControlTypeName='ButtonControl', Name='Invia', IsEnabled=True, AriaRole='')
+            with patch('chat_desktop.snapshot', return_value=([edit, stop], 'Exact target')), \
+                 patch('chat_desktop.entries', return_value=[({**job, 'status': 'Working'}, Mock())]), \
+                 patch('chat_desktop.question_card', return_value=None), patch('chat_desktop.walk', return_value=[stop, send]), \
+                 patch('automation_policy.foreground_app_state', return_value=True) as foreground:
+                result = step({'idle_seconds_before_actions': 0, 'native_background_delivery': True},
+                              job, {'drafted': True}, live_guard=lambda: None)
+                self.assertEqual(result['action'], 'ready')
+                self.assertTrue(result['validate_draft']())
+                foreground.assert_not_called()  # Same chat does not navigate.
+            stop.GetInvokePattern.assert_not_called()
+            send.GetInvokePattern.assert_not_called()
+
+    def test_foreground_race_while_acquiring_invoke_pattern_is_rechecked(self):
+        foreground = {'value': False}
+        control = Mock()
+        invoke = Mock()
+        def acquire():
+            foreground['value'] = True
+            return invoke
+        control.GetInvokePattern.side_effect = acquire
+        job = {'app': 'claude', 'title': 'Exact target', 'group': 'Project', 'ambiguous': False,
+               'send_when_active': True, 'send_when_present': True}
+        with patch('chat_desktop.snapshot', return_value=([], 'Other chat')), \
+             patch('chat_desktop.entries', return_value=[(job, control)]), \
+             patch('automation_policy.idle_seconds', return_value=0), \
+             patch('automation_policy.foreground_app_state', side_effect=lambda *_: foreground['value']):
+            result = step({'idle_seconds_before_actions': 0, 'native_background_delivery': True}, job, {}, live_guard=lambda: None)
+        self.assertIn('Applicazione in uso', result['reason'])
+        invoke.Invoke.assert_not_called()
+
+    def test_pause_race_immediately_before_native_selection_is_honored(self):
+        control = Mock()
+        job = {'app': 'codex', 'title': 'Exact target', 'group': 'Project', 'ambiguous': False}
+        guard = Mock(side_effect=[None, None, 'Sentinella in pausa globale'])
+        with patch('chat_desktop.snapshot', return_value=([], 'Other chat')), \
+             patch('chat_desktop.entries', return_value=[(job, control)]):
+            result = step({'idle_seconds_before_actions': 0}, job, {}, live_guard=guard)
+        self.assertIn('pausa', result['reason'])
+        control.GetInvokePattern.return_value.Invoke.assert_not_called()
+
+    def test_navigation_after_real_inactivity_still_works_if_app_is_foreground(self):
+        control = Mock()
+        job = {'app': 'claude', 'title': 'Exact target', 'group': 'Project', 'ambiguous': False}
+        with patch('chat_desktop.snapshot', return_value=([], 'Other chat')), \
+             patch('chat_desktop.entries', return_value=[(job, control)]), \
+             patch('automation_policy.idle_seconds', return_value=31), \
+             patch('automation_policy.foreground_app_state', return_value=True):
+            result = step({'idle_seconds_before_actions': 0, 'native_background_delivery': True,
+                           'native_navigation_idle_seconds': 30}, job, {}, live_guard=lambda: None)
+        self.assertEqual(result['action'], 'selected_chat')
+
+    def test_send_validation_rechecks_the_chat_instead_of_a_stale_composer(self):
+        job = {'app': 'claude', 'title': 'Exact target', 'group': 'Project', 'ambiguous': False,
+               'message': 'Literal', 'send_when_active': True}
+        edit = Mock(ControlTypeName='EditControl', Name='Prompt', IsEnabled=True, AriaRole='', HasKeyboardFocus=False)
+        edit.GetValuePattern.return_value.Value = 'Literal'
+        send = Mock(ControlTypeName='ButtonControl', Name='Invia', IsEnabled=True)
+        with patch('chat_desktop.snapshot', side_effect=[([edit], 'Exact target'), ([edit], 'Other chat')]), \
+             patch('chat_desktop.entries', return_value=[(job, Mock())]), \
+             patch('chat_desktop.question_card', return_value=None), patch('chat_desktop.walk', return_value=[send]):
+            result = step({'idle_seconds_before_actions': 0}, job, {'drafted': True}, live_guard=lambda: None)
+            self.assertEqual(result['action'], 'ready')
+            self.assertFalse(result['validate_draft']())
+        send.GetInvokePattern.assert_not_called()
 
     def test_reselecting_sidebar_row_preserves_existing_delivery_identity_and_policy(self):
         existing = {"id": "regia", "version": "old", "app": "codex", "title": "Regia", "group": "Recenti", "thread_id": "pinned-thread", "transport": "codex_app", "send_when_active": True}
@@ -198,7 +313,7 @@ class PolicyTests(unittest.TestCase):
     def test_chat_selections_survive_switching_app_filter(self):
         codex = {"app": "codex", "title": "Regia", "group": "Recenti"}
         claude = {"app": "claude", "title": "Lavoro", "group": "Sessioni"}
-        view = SimpleNamespace(rendering_chats=False, targets=[codex], chats={"0": claude}, chat_list=Mock(), identity=MessagesPanel.identity, update_target_summary=Mock())
+        view = SimpleNamespace(rendering_chats=False, editor_visible=True, editor_step=1, targets=[codex], chats={"0": claude}, chat_list=Mock(), identity=MessagesPanel.identity, update_target_summary=Mock())
         view.chat_list.selection.return_value = ("0",)
         MessagesPanel.choose_chat(view)
         self.assertEqual(view.targets, [codex, claude])
