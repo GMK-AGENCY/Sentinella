@@ -162,7 +162,7 @@ class AgendaView(tk.Frame):
             row['countdown'].configure(text=short,fg=color)
             when=record.get('when')
             expected=('Nessun nuovo invio' if paused else
-                      'Previsto '+stamp(when) if record.get('status_key')=='scheduled' and when is not None else '')
+                      'Previsto '+stamp(when) if record.get('status_key')=='scheduled' and when is not None else record.get('hint',''))
             row['expected'].configure(text=expected)
             # The full reason and timestamp stay accessible without duplicating prose under the list.
             status=record['status']

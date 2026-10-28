@@ -1,5 +1,11 @@
 # Modifiche
 
+## 0.2.4
+
+- Messaggi salvati con ricerca nel campo, comandi delle raccolte espliciti e azioni Usa, Elimina e Salva riunite in basso a destra.
+- Terminologia uniforme per i messaggi, senza footer descrittivi ripetuti; nuovo messaggio accessibile dall’editor e feedback vicino ai campi.
+- Dashboard con stato In attesa, motivo PC in uso e indicazione di ripresa automatica, senza richiedere di aprire o cambiare chat.
+
 ## 0.2.3
 
 - Diagnostica con stato in corso e risultato vicino ai comandi; il riavvio del lettore viene confermato solo dopo una nuova lettura delle notifiche.

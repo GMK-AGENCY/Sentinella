@@ -266,7 +266,7 @@ def build_workspace(app):
     settings = SettingsPanel(app.notebook, app.refresh_dashboard, lambda: os.startfile(str(ROOT / 'logs')), app.restart_reader)
     pages = [(overview, 'Panoramica', 'Le tue programmazioni, a colpo d’occhio.'),
              (app.messages_panel, 'Programmazioni', 'Destinatari, frequenze e comportamento degli invii'),
-             (app.library_panel, 'Messaggi salvati', 'Testi riutilizzabili: organizza in raccolte, salva e usa nell’editor. Salvare un modello non programma né invia messaggi.'),
+             (app.library_panel, 'Messaggi salvati', 'Organizza i messaggi in raccolte e riutilizzali nelle programmazioni. Il salvataggio non avvia invii.'),
              (app.history_panel, 'Registro invii', 'Cronologia, motivi dei rinvii e prove di consegna'),
              (notifications, 'Notifiche', 'Eventi osservati nelle applicazioni, separati dalle ricevute'),
              (settings, 'Impostazioni', 'Comportamento, tempi, cartelle autorizzate e diagnostica')]
@@ -411,7 +411,7 @@ def modernize_messages(panel):
     def choose_saved():
         from message_library import MessageLibraryChooser
         MessageLibraryChooser(panel,panel.use_saved_message)
-    save_template=ttk.Button(tools,text='Salva come modello',command=lambda:panel.library_callback());save_template.pack(side='right')
+    save_template=ttk.Button(tools,text='Salva nei messaggi',command=lambda:panel.library_callback());save_template.pack(side='right')
     ttk.Button(tools,text='Usa messaggio salvato',command=choose_saved).pack(side='right',padx=(8,8))
     Tooltip(save_template,'Conserva solo questo testo nella raccolta, con un nome. Non salva la programmazione e non invia messaggi.')
     panel.message=tk.Text(composer,bg='#f7f9fc',fg=INK,insertbackground=BLUE,height=4,width=1,wrap='word',undo=True,font=('Segoe UI',11),relief='flat',padx=12,pady=10,highlightthickness=1,highlightbackground='#dce4f0')

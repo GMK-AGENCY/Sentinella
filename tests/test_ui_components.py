@@ -8,10 +8,24 @@ import unittest
 from unittest.mock import patch
 
 import app_icon
-from ui_components import AutoScrollbar
+from ui_components import AutoScrollbar, PlaceholderEntry
 
 
 class UIComponentsTests(unittest.TestCase):
+    def test_placeholder_is_visual_and_never_enters_search_value(self):
+        value=tk.StringVar()
+        entry=PlaceholderEntry(self.root,textvariable=value,placeholder='Cerca nei messaggi')
+        entry.pack(fill='x');self.layout()
+        self.assertEqual(entry.get(),'')
+        self.assertEqual(value.get(),'')
+        self.assertEqual(entry.hint.winfo_manager(),'place')
+        value.set('Testo cercato');self.root.update_idletasks()
+        self.assertEqual(entry.get(),'Testo cercato')
+        self.assertEqual(entry.hint.winfo_manager(),'')
+        value.set('');self.root.update_idletasks()
+        self.assertEqual(entry.hint.winfo_manager(),'place')
+        entry.destroy();value.set('Ancora valido')
+
     def setUp(self):
         self.root = tk.Tk()
         self.root.withdraw()

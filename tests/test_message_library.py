@@ -228,6 +228,39 @@ class CollectionInterfaceTests(unittest.TestCase):
             use=next(child for child in widgets(self.panel) if isinstance(child,ttk.Button) and child.cget('text')=='Usa nella programmazione')
             self.assertLess(use.winfo_rootx(),self.panel.save_button.winfo_rootx())
 
+    def test_message_actions_footer_placeholder_and_collection_icons(self):
+        from tkinter import ttk
+        from ui_components import PlaceholderEntry
+        def widgets(parent):
+            for child in parent.winfo_children():
+                yield child
+                yield from widgets(child)
+        panel=self.panel
+        self.assertEqual(panel.status.get(),'')
+        self.assertTrue(panel.rename_collection_button.instate(['disabled']))
+        self.assertTrue(panel.delete_collection_button.instate(['disabled']))
+        self.assertEqual(panel.rename_collection_button.cget('text'),'')
+        self.assertEqual(panel.delete_collection_button.cget('text'),'')
+        self.assertTrue(panel.rename_collection_button.cget('image'))
+        self.assertTrue(panel.delete_collection_button.cget('image'))
+        self.assertEqual([tip.text for tip in panel.collection_tooltips],['Rinomina raccolta','Elimina raccolta'])
+        panel.collection_filter.set('Qualità')
+        self.assertFalse(panel.rename_collection_button.instate(['disabled']))
+        self.assertFalse(panel.delete_collection_button.instate(['disabled']))
+        panel.collection_filter.set('Tutte le raccolte')
+        self.assertTrue(panel.rename_collection_button.instate(['disabled']))
+        entries=[item for item in widgets(panel) if isinstance(item,PlaceholderEntry)]
+        self.assertEqual(len(entries),1);self.assertEqual(panel.query.get(),'')
+        self.root.geometry('1040x790');self.root.update();self.root.update_idletasks()
+        buttons={button.cget('text'):button for button in widgets(panel) if isinstance(button,ttk.Button)}
+        use=buttons['Usa nella programmazione'];delete=buttons['Elimina messaggio'];save=buttons['Salva messaggio']
+        self.assertIs(use.master,delete.master);self.assertIs(delete.master,save.master)
+        self.assertLess(use.winfo_rootx(),delete.winfo_rootx());self.assertLess(delete.winfo_rootx(),save.winfo_rootx())
+        self.assertEqual(use.winfo_rooty(),save.winfo_rooty())
+        self.assertLess(panel.text.winfo_rooty(),save.winfo_rooty())
+        self.assertLess(buttons['+ Nuovo messaggio'].winfo_rooty(),panel.title_entry.winfo_rooty())
+        self.assertFalse(any(word in str(widget.cget('text')).casefold() for widget in widgets(panel) if isinstance(widget,ttk.Label) for word in ('modello','modelli')))
+
     def test_chooser_filters_collection_search_and_preserves_literal_callback(self):
         captured=[];chooser=MessageLibraryChooser(self.panel,lambda text:captured.append(text))
         chooser.withdraw();chooser.attributes('-alpha',0.0);chooser.attributes('-disabled',True);chooser.deiconify()

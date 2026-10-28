@@ -10,7 +10,8 @@ import uuid
 
 from runtime_paths import data_root
 from default_message_templates import starter_library
-from ui_components import AutoScrollbar
+from ui_components import AutoScrollbar, PlaceholderEntry
+from switch_control import Tooltip
 
 PERSONAL_COLLECTION = str(uuid.uuid5(uuid.NAMESPACE_URL, 'sentinella://collections/personal'))
 
@@ -46,7 +47,7 @@ class MessageLibraryStore:
             if identity != item["id"] or identity in seen:
                 raise ValueError("Identificativo del messaggio duplicato o non valido")
             seen.add(identity)
-            if item.get('collection_id') is not None and (not isinstance(item['collection_id'],str) or item['collection_id'] not in collection_ids):raise ValueError('Il modello appartiene a una raccolta inesistente')
+            if item.get('collection_id') is not None and (not isinstance(item['collection_id'],str) or item['collection_id'] not in collection_ids):raise ValueError('Il messaggio appartiene a una raccolta inesistente')
             MessageLibraryStore._validate_text(item.get("title"), item.get("text"))
             updated = item.get("updated_at")
             if isinstance(updated, bool) or not isinstance(updated, (int, float)) or not 0 <= updated < float("inf"):
@@ -56,7 +57,7 @@ class MessageLibraryStore:
     @staticmethod
     def _validate_text(title, text):
         if not isinstance(title, str) or not title.strip() or len(title.strip()) > 160:
-            raise ValueError("Inserisci un titolo da 1 a 160 caratteri")
+            raise ValueError("Inserisci un nome da 1 a 160 caratteri")
         if not isinstance(text, str) or not text.strip() or len(text) > 12000:
             raise ValueError("Inserisci un testo da 1 a 12000 caratteri")
 
@@ -162,7 +163,7 @@ class MessageLibraryStore:
     def delete_collection(self,collection_id):
         previous=self._read();data=self._normalized(previous)
         if not any(row['id']==collection_id for row in data['collections']):raise ValueError('Raccolta non trovata')
-        if any(row['collection_id']==collection_id for row in data['items']):raise ValueError('La raccolta contiene modelli. Spostali in un’altra raccolta prima di eliminarla.')
+        if any(row['collection_id']==collection_id for row in data['items']):raise ValueError('La raccolta contiene messaggi. Spostali in un’altra raccolta prima di eliminarla.')
         data['collections']=[row for row in data['collections'] if row['id']!=collection_id]
         self._write(previous,data)
 
@@ -178,7 +179,7 @@ class MessageLibraryPanel(ttk.Frame):
         self.rendering = False
         self.query = tk.StringVar()
         self.title_value = tk.StringVar()
-        self.status = tk.StringVar(value="Nuovo modello: scegli un nome e scrivi il messaggio.")
+        self.status = tk.StringVar()
         self.title_error=tk.StringVar();self.text_error=tk.StringVar()
         self.collection_filter=tk.StringVar(value='Tutte le raccolte');self.collection_value=tk.StringVar()
         self.collection_options={};self.baseline_collection=''
@@ -187,40 +188,61 @@ class MessageLibraryPanel(ttk.Frame):
         listing=ttk.Frame(split,padding=(0,0,16));listing.grid(row=0,column=0,sticky='nsew')
         collection_top=ttk.Frame(listing);collection_top.pack(fill='x',pady=(0,10))
         ttk.Label(collection_top,text='Raccolte',style='Section.TLabel').pack(side='left')
-        manage=ttk.Menubutton(collection_top,text='⋯',width=2);manage.pack(side='right')
-        menu=tk.Menu(manage,tearoff=False);menu.add_command(label='Rinomina raccolta',command=lambda:self.collection_dialog(rename=True));menu.add_command(label='Elimina raccolta vuota',command=self.remove_collection);manage.configure(menu=menu)
-        ttk.Button(listing,text='+ Nuova raccolta',command=self.collection_dialog).pack(fill='x',pady=(0,10))
+        style=ttk.Style(self);style.configure('LibraryIcon.TButton',padding=(5,6))
+        style.configure('LibraryCompact.TButton',padding=(8,7))
+        collection_actions=ttk.Frame(listing);collection_actions.pack(fill='x',pady=(0,10))
+        self.collection_icons={}
+        for icon in ('rename','delete'):
+            for state,color in (('normal','#56657a'),('disabled','#aab3c1')):
+                image=tk.PhotoImage(master=self,width=20,height=20)
+                if icon=='rename':
+                    for point in range(5,15):image.put(color,to=(point,18-point,point+3,21-point))
+                    image.put(color,to=(3,16,6,18))
+                else:
+                    for box in ((4,5,16,7),(8,3,12,5),(5,7,7,17),(14,7,16,17),(5,16,16,18),(9,9,10,15),(12,9,13,15)):image.put(color,to=box)
+                self.collection_icons[(icon,state)]=image
+        self.delete_collection_button=ttk.Button(collection_actions,image=(self.collection_icons['delete','normal'],'disabled',self.collection_icons['delete','disabled']),style='LibraryIcon.TButton',command=self.remove_collection,state='disabled')
+        self.delete_collection_button.pack(side='right')
+        self.rename_collection_button=ttk.Button(collection_actions,image=(self.collection_icons['rename','normal'],'disabled',self.collection_icons['rename','disabled']),style='LibraryIcon.TButton',command=lambda:self.collection_dialog(rename=True),state='disabled')
+        self.rename_collection_button.pack(side='right',padx=4)
+        ttk.Button(collection_actions,text='Nuova raccolta',command=self.collection_dialog,style='LibraryCompact.TButton').pack(side='left',fill='x',expand=True)
+        self.collection_tooltips=[Tooltip(self.rename_collection_button,'Rinomina raccolta'),Tooltip(self.delete_collection_button,'Elimina raccolta')]
         self.collection_picker=ttk.Combobox(listing,textvariable=self.collection_filter,state='readonly');self.collection_picker.pack(fill='x',pady=(0,10))
-        ttk.Entry(listing,textvariable=self.query).pack(fill='x',pady=(0,10))
-        ttk.Label(listing,text='Cerca nel nome o nel testo',style='Muted.TLabel').pack(anchor='w',pady=(0,8))
-        ttk.Button(listing,text='+ Nuovo modello',command=self.new).pack(fill='x',pady=(0,10))
+        PlaceholderEntry(listing,textvariable=self.query,placeholder='Cerca nel nome o nel testo').pack(fill='x',pady=(0,10))
         list_body=ttk.Frame(listing);list_body.pack(fill='both',expand=True)
         self.tree=ttk.Treeview(list_body,columns=('title',),show='headings',height=7,selectmode='browse')
-        self.tree.heading('title',text='Modelli salvati',anchor='w');self.tree.column('title',width=180,minwidth=80)
+        self.tree.heading('title',text='Messaggi salvati',anchor='w');self.tree.column('title',width=180,minwidth=80)
         scroll=AutoScrollbar(list_body,orient='vertical',command=self.tree.yview);self.tree.configure(yscrollcommand=scroll.set)
         scroll.pack(side='right',fill='y');self.tree.pack(fill='both',expand=True)
-        self.empty_hint=tk.StringVar(value='Nessun modello. Scrivi a destra e salva, oppure premi Nuovo.')
+        self.empty_hint=tk.StringVar(value='Nessun messaggio. Scrivi a destra e salva, oppure premi Nuovo.')
         ttk.Label(listing,textvariable=self.empty_hint,style='Muted.TLabel',wraplength=210).pack(anchor='w',pady=(10,0))
         editor=ttk.Frame(split);editor.grid(row=0,column=1,sticky='nsew')
-        actions=ttk.Frame(editor);actions.pack(fill='x',pady=(0,16))
-        self.save_button=ttk.Button(actions,text='Salva modello',command=self.save,style='Primary.TButton');self.save_button.pack(side='right')
-        ttk.Button(actions,text='Usa nella programmazione',command=self.use).pack(side='right',padx=(0,8))
+        editor_header=ttk.Frame(editor);editor_header.pack(fill='x',pady=(0,14))
+        ttk.Label(editor_header,text='Messaggio',style='Section.TLabel').pack(side='left')
+        ttk.Button(editor_header,text='+ Nuovo messaggio',command=self.new).pack(side='right')
         fields=ttk.Frame(editor);fields.pack(fill='x');fields.columnconfigure(0,weight=2);fields.columnconfigure(1,weight=3)
         ttk.Label(fields,text='Raccolta').grid(row=0,column=0,sticky='w')
-        ttk.Label(fields,text='Nome del modello').grid(row=0,column=1,sticky='w',padx=(12,0))
+        ttk.Label(fields,text='Nome del messaggio').grid(row=0,column=1,sticky='w',padx=(12,0))
         self.model_collection=ttk.Combobox(fields,textvariable=self.collection_value,state='readonly',width=12)
         self.model_collection.grid(row=1,column=0,sticky='ew',pady=(6,0))
         self.title_entry=ttk.Entry(fields,textvariable=self.title_value,width=18);self.title_entry.grid(row=1,column=1,sticky='ew',padx=(12,0),pady=(6,0))
         ttk.Label(editor,textvariable=self.title_error,foreground='#a44324',wraplength=500).pack(anchor='w',pady=(3,10))
-        ttk.Label(editor,text='Messaggio').pack(anchor='w')
+        ttk.Label(editor,text='Testo del messaggio').pack(anchor='w')
         body=ttk.Frame(editor);body.pack(fill='both',expand=True,pady=(6,0))
         self.text=tk.Text(body,height=10,width=1,wrap='word',undo=True,font=('Segoe UI',11),relief='flat',bg='#f7f9fc',fg='#17243b',padx=12,pady=12)
         text_scroll=AutoScrollbar(body,orient='vertical',command=self.text.yview);self.text.configure(yscrollcommand=text_scroll.set)
         text_scroll.pack(side='right',fill='y');self.text.pack(fill='both',expand=True)
         ttk.Label(editor,textvariable=self.text_error,foreground='#a44324',wraplength=500).pack(anchor='w',pady=(3,8))
-        footer=ttk.Frame(editor);footer.pack(fill='x')
-        ttk.Button(footer,text='Elimina modello',command=self.remove).pack(side='right')
-        ttk.Label(footer,textvariable=self.status,style='Muted.TLabel',wraplength=360).pack(side='left',fill='x',expand=True)
+        footer=ttk.Frame(editor);footer.pack(fill='x',pady=(8,0))
+        self.save_button=ttk.Button(footer,text='Salva messaggio',command=self.save,style='Primary.TButton');self.save_button.pack(side='right')
+        self.delete_message_button=ttk.Button(footer,text='Elimina messaggio',command=self.remove,state='disabled')
+        self.delete_message_button.pack(side='right',padx=(8,8))
+        self.use_button=ttk.Button(footer,text='Usa nella programmazione',command=self.use);self.use_button.pack(side='right')
+        feedback=ttk.Label(editor,textvariable=self.status,style='Muted.TLabel',wraplength=520)
+        def show_feedback(*_):
+            if self.status.get():feedback.pack(fill='x',pady=(0,10),before=fields)
+            else:feedback.pack_forget()
+        self.status.trace_add('write',show_feedback)
         self.tree.bind("<<TreeviewSelect>>", self.select)
         self.query.trace_add("write", lambda *_: self.refresh(reload=False))
         self.collection_filter.trace_add("write",lambda *_:self.refresh(reload=False))
@@ -246,7 +268,7 @@ class MessageLibraryPanel(ttk.Frame):
             self.collection_value.set(next((name for name,key in self.collection_options.items() if key==editor_collection_id),self.collection_value.get()) if rename else item['name'])
             if not rename:self._load();self.tree.selection_remove(*self.tree.selection())
             self.baseline_collection=self.collection_value.get()
-            self.status.set('Raccolta rinominata.' if rename else 'Raccolta creata. Premi Nuovo modello per aggiungere un testo.')
+            self.status.set('Raccolta rinominata.' if rename else 'Raccolta creata.')
             window.destroy()
         actions=ttk.Frame(body);actions.pack(side='bottom',fill='x')
         ttk.Button(actions,text='Salva raccolta' if rename else 'Crea raccolta',command=save,style='Primary.TButton').pack(side='right')
@@ -257,7 +279,7 @@ class MessageLibraryPanel(ttk.Frame):
         collection_id=self.collection_options.get(self.collection_filter.get())
         if collection_id is None:self.status.set('Scegli una raccolta da eliminare.');return
         if any(item.get('collection_id')==collection_id for item in self.items):
-            self.status.set('La raccolta contiene modelli. Spostali prima di eliminarla.');return
+            self.status.set('La raccolta contiene messaggi. Spostali prima di eliminarla.');return
         if not self._may_leave():return
         if not messagebox.askyesno('Elimina raccolta vuota','Eliminare questa raccolta vuota? Le programmazioni non vengono modificate.',parent=self):return
         try:self.store.delete_collection(collection_id)
@@ -274,7 +296,7 @@ class MessageLibraryPanel(ttk.Frame):
     def _may_leave(self):
         if not self._dirty():
             return True
-        choice = messagebox.askyesnocancel("Modifiche non salvate", "Vuoi salvare questo testo prima di continuare?", parent=self)
+        choice = messagebox.askyesnocancel("Modifiche non salvate", "Vuoi salvare le modifiche a questo messaggio prima di continuare?", parent=self)
         return self.save() if choice is True else choice is False
 
     def refresh(self, reload=True):
@@ -289,9 +311,10 @@ class MessageLibraryPanel(ttk.Frame):
                     self.status.set(self.store.recovery_notice)
             query = self.query.get().casefold().strip()
             wanted=self.collection_options.get(self.collection_filter.get())
+            for button in (self.rename_collection_button,self.delete_collection_button):button.configure(state='normal' if wanted is not None else 'disabled')
             names={value:key for key,value in self.collection_options.items()}
             rows=[item for item in self.items if (wanted is None or item.get('collection_id')==wanted) and (not query or query in (item['title']+'\n'+item['text']+'\n'+names.get(item.get('collection_id'),'')).casefold())]
-            self.empty_hint.set("Nessun modello trovato." if query and not rows else "Nessun modello. Scrivi a destra e salva." if not rows else f"{len(rows)} modelli nella raccolta")
+            self.empty_hint.set("Nessun messaggio trovato." if query and not rows else "Nessun messaggio. Scrivi a destra e salva." if not rows else f"{len(rows)} messaggi nella raccolta")
             self.rendering = True
             existing = set(self.tree.get_children())
             for index, item in enumerate(rows):
@@ -313,6 +336,7 @@ class MessageLibraryPanel(ttk.Frame):
     def _load(self, item=None):
         self.title_error.set("");self.text_error.set("")
         self.selected_id = item['id'] if item else None
+        self.delete_message_button.configure(state='normal' if item else 'disabled')
         name=next((name for name,key in self.collection_options.items() if item and key==item.get('collection_id')),None)
         self.collection_value.set(name or (self.collection_filter.get() if self.collection_filter.get() in self.collection_options else self.collection_value.get()))
         self.title_value.set(item["title"] if item else "")
@@ -320,8 +344,7 @@ class MessageLibraryPanel(ttk.Frame):
         self.text.edit_reset()
         self.baseline = self._values()
         self.baseline_collection=self.collection_value.get()
-        if item:
-            self.status.set('Modello selezionato: modifica il testo o usalo nella programmazione.')
+        self.status.set('')
 
     def select(self, _=None):
         selection = self.tree.selection()
@@ -346,7 +369,7 @@ class MessageLibraryPanel(ttk.Frame):
         if self._may_leave():
             self._load()
             self.tree.selection_remove(*self.tree.selection())
-            self.status.set("Nuovo modello: scegli un nome e scrivi il messaggio.")
+            self.status.set('')
 
     def new_from_text(self, text):
         """Stage a composer's text for naming; never save or send implicitly."""
@@ -361,16 +384,16 @@ class MessageLibraryPanel(ttk.Frame):
         self.text.insert("1.0", text)
         self.text.edit_reset()
         self.tree.selection_remove(*self.tree.selection())
-        self.status.set("Scegli un nome e premi Salva modello per aggiungerlo alla raccolta. Nessun invio o programmazione creati.")
+        self.status.set("Messaggio importato: scegli un nome per salvarlo nella raccolta.")
         return True
 
     def save(self):
         title,text=self._values()
         self.title_error.set('');self.text_error.set('')
         if self.collection_value.get() not in self.collection_options:
-            self.title_error.set('Crea o scegli una raccolta per questo modello.');self.model_collection.focus_set();return False
+            self.title_error.set('Crea o scegli una raccolta per questo messaggio.');self.model_collection.focus_set();return False
         if not title.strip() or len(title.strip())>160:
-            self.title_error.set('Scegli un nome da 1 a 160 caratteri per riconoscere il modello.');self.title_entry.focus_set();return False
+            self.title_error.set('Scegli un nome da 1 a 160 caratteri per riconoscere il messaggio.');self.title_entry.focus_set();return False
         if not text.strip() or len(text)>12000:
             self.text_error.set('Inserisci un messaggio da 1 a 12000 caratteri.');self.text.focus_set();return False
         try:
@@ -381,7 +404,7 @@ class MessageLibraryPanel(ttk.Frame):
             self.title_value.set(item["title"])
             self.refresh()
             self.baseline_collection=self.collection_value.get()
-            self.status.set("Modello salvato. Nessun invio programmato.")
+            self.status.set("Messaggio salvato. Nessun invio programmato.")
             return True
         except (OSError, ValueError) as exc:
             self.status.set(str(exc))
@@ -400,19 +423,19 @@ class MessageLibraryPanel(ttk.Frame):
         except (OSError, ValueError) as exc:
             self.status.set(str(exc))
             return
-        self.status.set("Testo copiato nell'editor della programmazione. Controlla i destinatari prima di attivare.")
+        self.status.set("Messaggio copiato nella programmazione.")
 
     def remove(self):
         if not self.selected_id:
-            self.status.set("Seleziona un testo salvato da rimuovere.")
+            self.status.set("Seleziona un messaggio da eliminare.")
             return
-        if not messagebox.askyesno("Rimuovi testo salvato", "Rimuovere questo testo dalla raccolta? Le programmazioni già create restano invariate.", parent=self):
+        if not messagebox.askyesno("Elimina messaggio", "Eliminare questo messaggio dalla raccolta? Le programmazioni già create restano invariate.", parent=self):
             return
         try:
             self.store.delete(self.selected_id)
             self._load()
             self.refresh()
-            self.status.set("Testo rimosso dalla raccolta. Le programmazioni restano invariate.")
+            self.status.set("Messaggio eliminato dalla raccolta.")
         except (OSError, ValueError) as exc:
             self.status.set(str(exc))
 
@@ -424,14 +447,14 @@ class MessageLibraryChooser(tk.Toplevel):
         self.title('Usa messaggio salvato');self.geometry('760x620');self.minsize(620,520)
         self.on_use=on_use;self.store=MessageLibraryStore();self.items=[]
         self.query=tk.StringVar();self.collection_filter=tk.StringVar(value='Tutte le raccolte');self.collection_options={}
-        self.notice=tk.StringVar(value='Scegli un modello per leggerlo prima di usarlo.')
+        self.notice=tk.StringVar(value='Scegli un messaggio per leggerlo prima di usarlo.')
         body=ttk.Frame(self,padding=20);body.pack(fill='both',expand=True)
-        ttk.Label(body,text='Cerca un modello salvato',font=('Segoe UI',12,'bold')).pack(anchor='w',pady=(0,8))
+        ttk.Label(body,text='Seleziona un messaggio salvato',font=('Segoe UI',12,'bold')).pack(anchor='w',pady=(0,8))
         self.collection_picker=ttk.Combobox(body,textvariable=self.collection_filter,state='readonly');self.collection_picker.pack(fill='x',pady=(0,8))
-        ttk.Entry(body,textvariable=self.query).pack(fill='x',pady=(0,12))
+        PlaceholderEntry(body,textvariable=self.query,placeholder='Cerca nel nome o nel testo').pack(fill='x',pady=(0,12))
         listing=ttk.Frame(body);listing.pack(fill='x')
         self.tree=ttk.Treeview(listing,columns=('title','collection'),show='headings',height=3,selectmode='browse')
-        self.tree.heading('title',text='Nome del modello',anchor='w');self.tree.heading('collection',text='Raccolta',anchor='w')
+        self.tree.heading('title',text='Nome del messaggio',anchor='w');self.tree.heading('collection',text='Raccolta',anchor='w')
         self.tree.column('title',width=360,minwidth=150);self.tree.column('collection',width=150,minwidth=90)
         listing_scroll=AutoScrollbar(listing,orient='vertical',command=self.tree.yview);self.tree.configure(yscrollcommand=listing_scroll.set)
         listing_scroll.pack(side='right',fill='y');self.tree.pack(side='left',fill='x',expand=True)
@@ -457,7 +480,7 @@ class MessageLibraryChooser(tk.Toplevel):
         names={key:name for name,key in self.collection_options.items()}
         for item in self.items:self.tree.insert('','end',iid=item['id'],values=(item['title'],names.get(item.get('collection_id'),'Personali')))
         self.use_button.configure(state='disabled')
-        self.notice.set('Nessun modello trovato. Puoi crearne uno in Messaggi salvati.' if not self.items else 'Scegli un modello per vedere il testo. Nessun invio partirà da questa scelta.')
+        self.notice.set('Nessun messaggio trovato. Puoi crearne uno in Messaggi salvati.' if not self.items else 'Scegli un messaggio per vedere il testo. Nessun invio partirà da questa scelta.')
         self.select()
 
     def select(self,_event=None):

@@ -8,11 +8,16 @@ class DisplayTests(unittest.TestCase):
         state={'version':'new','phase':'drafted','due':self.now,
                'detail':"Cambio chat rinviato durante l'uso del PC"}
         display=schedule_display(self.job,state,{},self.now)
-        self.assertEqual(display['status'],'Attende cambio chat')
-        self.assertEqual(display['next_precise'],'Apri la chat destinataria')
-        self.assertIn('mentre lavori',display['detail'])
+        self.assertEqual(display['status'],'In attesa')
+        self.assertEqual(display['next_precise'],'PC in uso')
+        self.assertEqual(display['hint'],'Riprende automaticamente')
         state.update(phase='uncertain',local_stage='drafted')
-        self.assertEqual(schedule_display(self.job,state,{},self.now)['status'],'Attende cambio chat')
+        self.assertEqual(schedule_display(self.job,state,{},self.now)['status'],'In attesa')
+        state.update(phase='drafted',detail='Messaggio preparato')
+        waiting='PC in uso: attendo 30 secondi'
+        self.assertEqual(schedule_display(self.job,state,{},self.now,waiting)['next_precise'],'PC in uso')
+        background={**self.job,'send_when_present':True}
+        self.assertEqual(schedule_display(background,state,{},self.now,waiting)['status_key'],'preparing')
 
     def test_known_queue_is_not_reclassified_as_unknown_after_two_minutes(self):
         state = {'version':'new', 'phase':'uncertain', 'local_stage':'awaiting_receipt',
@@ -77,7 +82,7 @@ class DisplayTests(unittest.TestCase):
     def test_overdue_on_active_pc_explains_why_it_waits(self):
         state = {"version": "new", "due": self.now - 60}
         display = schedule_display(self.job, state, {}, self.now, "PC in uso: attendo 30 secondi")
-        self.assertEqual(display["next"], "Attende PC libero")
+        self.assertEqual(display["next"], "PC in uso")
 
     def test_tomorrow_and_pause_are_unambiguous(self):
         state = {"version": "new", "due": self.now + 86400}

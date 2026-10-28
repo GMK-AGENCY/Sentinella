@@ -1,5 +1,32 @@
 """Reusable Tk controls without polling or third-party dependencies."""
+import tkinter as tk
 from tkinter import ttk
+
+
+class PlaceholderEntry(ttk.Entry):
+    """A visual hint that never becomes part of the search value."""
+
+    def __init__(self,master=None,placeholder='',**kwargs):
+        self.value=kwargs.pop('textvariable',None) or tk.StringVar(master=master)
+        super().__init__(master,textvariable=self.value,**kwargs)
+        style=ttk.Style(self)
+        background=style.lookup(self.cget('style') or 'TEntry','fieldbackground') or '#f7f9fc'
+        self.hint=tk.Label(self,text=placeholder,fg='#738197',bg=background,
+                           font=kwargs.get('font','TkTextFont'),borderwidth=0,anchor='w',cursor='xterm')
+        self.hint.bind('<Button-1>',lambda _event:self.focus_set())
+        self.trace=self.value.trace_add('write',self.refresh_hint)
+        self.bind('<FocusIn>',self.refresh_hint,add='+')
+        self.bind('<FocusOut>',self.refresh_hint,add='+')
+        self.bind('<Destroy>',self.cleanup_hint,add='+')
+        self.refresh_hint()
+
+    def refresh_hint(self,*_):
+        if not self.value.get() and self.focus_get() is not self:
+            self.hint.place(x=9,rely=0.5,anchor='w',relwidth=0.9)
+        else:self.hint.place_forget()
+
+    def cleanup_hint(self,event):
+        if event.widget is self:self.value.trace_remove('write',self.trace)
 
 
 class AutoScrollbar(ttk.Scrollbar):

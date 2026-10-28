@@ -92,7 +92,7 @@ def snapshot(config, jobs, states, history, health, now):
             inactive.append({**base, "severity":"info", "reason":"Una versione precedente ha una consegna non verificata; è separata dalla programmazione attuale."})
         schedule.append({"job_id":job["id"], "title":job.get("title", ""), "enabled":enabled,
                          "status":display["status"], "status_key":key, "when":due, "countdown":display["next_precise"],
-                         "frequency":frequency, "last_confirmed_at":last_by_job.get(job["id"]), "reason":reason})
+                         "frequency":frequency, "last_confirmed_at":last_by_job.get(job["id"]), "reason":reason,'hint':display.get('hint','')})
         if enabled and phase != "finished" and due is not None and key not in {"unconfirmed", "queued", "confirming"}:
             candidates.append({"job_id":job["id"], "title":job.get("title", ""), "when":due,
                                "countdown":"Invii in pausa" if paused else display["next_precise"], "frequency":frequency,
