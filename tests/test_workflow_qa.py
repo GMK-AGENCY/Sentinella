@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from queue import Empty
 import tempfile
 import time
 import tkinter as tk
@@ -116,10 +117,11 @@ class WorkflowQA(unittest.TestCase):
                 "returncode": 0, "timed_out": False, "elapsed_seconds": .01}
 
     def finish_scan(self):
-        until = time.monotonic() + 2
-        while self.panel.results.empty() and time.monotonic() < until:
-            time.sleep(.005)
-        self.assertFalse(self.panel.results.empty(), "Catalog worker never produced a terminal result")
+        try:
+            result = self.panel.results.get(timeout=5)
+        except Empty:
+            self.fail("Catalog worker never produced a terminal result")
+        self.panel.results.put(result)
         self.panel.poll()
 
     def seed(self, enabled=False):

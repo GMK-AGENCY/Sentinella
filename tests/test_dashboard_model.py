@@ -118,8 +118,8 @@ class DashboardModelTests(unittest.TestCase):
                   "draft": {"version": "v2", "phase": "uncertain", "local_stage": "drafted", "detail": "Bozza presente", "due": self.now - 20}}
         rows = {row["job_id"]: row for row in snapshot({}, jobs, states, [], {}, self.now)["schedule"]}
         self.assertEqual(rows["active"]["countdown"], "Attende la ricevuta")
-        self.assertEqual(rows["draft"]["countdown"], "Completa la bozza nella chat")
-        self.assertTrue(all(row["status"] in {"Conferma in corso", "Bozza da completare"} for row in rows.values()))
+        self.assertEqual(rows["draft"]["countdown"], "Campo messaggio già compilato")
+        self.assertTrue(all(row["status"] in {"Conferma in corso", "Bozza nella chat"} for row in rows.values()))
 
     def test_ten_agenda_rows_do_not_collapse_same_titles_or_mutate_states(self):
         jobs = [{**self.job, "id": str(index), "enabled": index < 8} for index in range(10)]

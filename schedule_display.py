@@ -41,7 +41,7 @@ def _schedule_display(job, stored, config, now, waiting_reason=None):
             return {**result, 'status':'Accodato alla chat', 'next':'Attende l’elaborazione della chat'}
         if state.get("local_stage") in {"reserved", "drafted"}:
             if "bozza presente" in result["detail"].casefold():
-                return {**result, "status": "Bozza presente", "next": "Bozza da completare"}
+                return {**result, "status": "Bozza presente", "next": "Campo messaggio già compilato"}
             return {**result, "status": "Preparazione", "next": "Invio in preparazione"}
         if state.get("local_stage") in {"sending", "awaiting_receipt"} and now - state.get("reserved_at", 0) < 120:
             return {**result, "status": "Verifica ricevuta", "next": "Consegna in verifica"}
@@ -95,14 +95,14 @@ def schedule_display(job, stored, config, now, waiting_reason=None):
     else:
         precise = 'Tra ' + duration
     canonical = {'In pausa':('paused','In pausa'), 'Completato':('completed','Completato'),
-                 'Bozza presente':('draft','Bozza da completare'), 'Preparazione':('preparing','In preparazione'),
+                 'Bozza presente':('draft','Bozza nella chat'), 'Preparazione':('preparing','In preparazione'),
                  'Accodato alla chat':('queued','Accodato alla chat'),
                  'Verifica ricevuta':('confirming','Conferma in corso'), 'Da verificare':('unconfirmed','Ricezione non confermata'),
                  'Chat da verificare':('attention','Destinatario non disponibile'),
                  'Programmato':('scheduled','Programmato')}
     key, label = canonical.get(result['status'], ('waiting','In attesa'))
     if key != 'scheduled':
-        precise = {'paused':'Nessun nuovo invio', 'completed':'—', 'draft':'Completa la bozza nella chat',
+        precise = {'paused':'Nessun nuovo invio', 'completed':'—', 'draft':'Campo messaggio già compilato',
                    'preparing':result['next'], 'queued':'Attende l’elaborazione della chat',
                    'confirming':'Attende la ricevuta', 'unconfirmed':'Controlla il registro',
                    'attention':'Controlla il destinatario'}.get(key, result['next'])
@@ -110,7 +110,7 @@ def schedule_display(job, stored, config, now, waiting_reason=None):
     if key == 'unconfirmed':
         detail = 'Un tentativo precedente non ha ancora una ricevuta verificata. La programmazione è abilitata, ma quel tentativo non viene ripetuto per evitare duplicati.'
     elif key == 'draft':
-        detail = 'Nella chat c’è una bozza non inviata. Il testo viene conservato: completala o rimuovila dalla chat per consentire gli invii.'
+        detail = 'Il campo messaggio nell’app destinataria contiene una bozza diversa da quella preparata da Sentinella. La programmazione è salvata; il testo nella chat resta intatto e blocca nuovi invii finché il campo non è libero.'
     elif key == 'paused':
         detail = ('La pausa generale sospende tutti i nuovi invii.' if config.get('paused') else 'Hai messo in pausa questa programmazione.')
         if state.get('phase') == 'uncertain':

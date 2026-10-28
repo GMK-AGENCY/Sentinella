@@ -1,5 +1,12 @@
 # Modifiche
 
+## 0.2.10
+
+- Ricevute Claude riconosciute anche quando il messaggio umano è accodato durante il lavoro insieme ad avvisi di sistema e l'evento di accodamento non contiene testo. Restano obbligatori testo esatto, sessione, orario e identificativi correlati dell'assorbimento.
+- Pulizia dei residui di Sentinella già ricevuti anche quando Claude rimuove lo spazio finale, con copia integrale prima della pulizia; bozze personali e testi modificati restano protetti.
+- Una validazione interrotta dalla digitazione prima del pulsante Invia conserva la preparazione e riprende senza duplicare la prenotazione.
+- Stato Bozza nella chat distinto dal salvataggio della programmazione.
+
 ## 0.2.9
 
 - Revisione per la pubblicazione: rimosse anteprime e azioni non più raggiungibili, con meno letture periodiche delle configurazioni nell'editor.

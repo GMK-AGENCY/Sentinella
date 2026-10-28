@@ -22,6 +22,26 @@ def same_session(left, right):
     return left['session'] == right['session'] and os.path.normcase(left['index']) == os.path.normcase(right['index'])
 
 
+def queued_text(content):
+    """Read text-only Claude queue envelopes, excluding leading system blocks."""
+    if isinstance(content, list):
+        if not content or any(not isinstance(x, dict) or x.get('type') != 'text'
+                              or not isinstance(x.get('text'), str) for x in content):
+            return None
+        parts = [queued_text(x['text']) for x in content]
+        if any(part is None for part in parts):
+            return None
+        return ''.join(parts)
+    if not isinstance(content, str):
+        return None
+    while content.startswith('<system-reminder>'):
+        closing = content.find('</system-reminder>')
+        if closing < 0:
+            return None
+        content = content[closing + len('</system-reminder>'):].lstrip('\r\n')
+    return content
+
+
 def received_text(record):
     if record.get('type') != 'user' or record.get('message', {}).get('role') != 'user':
         return None
@@ -103,10 +123,12 @@ def read_receipt(identity, expected, since, offset=0, until=None, queued_only=Fa
             if record.get('sessionId') != identity['session']:
                 continue
             kind = record.get('type')
-            if kind == 'queue-operation' and receipt_matches(expected, record.get('content')):
+            if kind == 'queue-operation' and (receipt_matches(expected, queued_text(record.get('content')))
+                                              or record.get('operation') == 'enqueue' and 'content' not in record):
                 if record.get('operation') == 'enqueue':
-                    enqueued.append((at, record['content']))
-                    pending = {'queued': True, 'at': at}
+                    enqueued.append((at, queued_text(record.get('content'))))
+                    if receipt_matches(expected, queued_text(record.get('content'))):
+                        pending = {'queued': True, 'at': at}
                 elif record.get('operation') in {'remove', 'dequeue'}:
                     pending = None
                 if record.get('operation') == 'remove' and record.get('reason') == 'absorbed_mid_turn':
@@ -120,7 +142,7 @@ def read_receipt(identity, expected, since, offset=0, until=None, queued_only=Fa
                 command = record.get('attachment', {})
                 if (isinstance(command, dict) and command.get('type') == 'queued_command' and command.get('humanTurn') is True
                         and isinstance(command.get('origin'), dict) and command['origin'].get('kind') == 'human' and command.get('commandMode') == 'prompt'
-                        and record.get('uuid') and receipt_matches(expected, command.get('prompt'))):
+                        and record.get('uuid') and receipt_matches(expected, queued_text(command.get('prompt')))):
                     try:
                         command_at = datetime.fromisoformat(command['timestamp'].replace('Z', '+00:00')).timestamp()
                         for identifier in (command['source_uuid'], command['delivery_id'], record['uuid']):
@@ -134,15 +156,16 @@ def read_receipt(identity, expected, since, offset=0, until=None, queued_only=Fa
                     # may authorize this attachment; duplicates are ambiguous.
                     matching_enqueues = [queued_at for queued_at, text in enqueued
                                          if abs(queued_at - command_at) <= .010
-                                         and command['prompt'] == text]
+                                         and (text is None or queued_text(command['prompt']) == text)]
                     if len(matching_enqueues) == 1 and at == command_at:
-                        actual = command['prompt']
+                        actual = queued_text(command['prompt'])
                         attachments[(command['source_uuid'], command['delivery_id'])] = {
                             'uuid': record['uuid'], 'at': at, 'text': actual, 'session': identity['session'],
                             'history': str(path), 'configured_sha256': digest(expected), 'received_sha256': digest(actual),
                             'match': 'exact' if actual == expected else 'claude_terminal_space_trim',
                             'origin': 'human_mid_turn', 'command_uuid': command['source_uuid'],
                             'delivery_id': command['delivery_id'], 'enqueue_at': matching_enqueues[0]}
+                        pending = {'queued': True, 'at': at}
             if queued_only:
                 if record.get('sessionId') == identity['session'] and record.get('type') == 'queue-operation' and record.get('operation') == 'enqueue' and receipt_matches(expected, record.get('content')):
                     return {'queued': True, 'at': at}
@@ -157,7 +180,7 @@ def read_receipt(identity, expected, since, offset=0, until=None, queued_only=Fa
                         'session': identity['session'], 'history': str(path),
                         'configured_sha256': digest(expected), 'received_sha256': digest(actual),
                         'match': 'exact' if actual == expected else 'claude_terminal_space_trim'}
-    return pending if pending_only else None
+    return pending if pending_only or queued_only else None
 
 
 def read_modified_submission(identity, expected, since, offset):
@@ -338,8 +361,11 @@ class Delivery:
 
     def archive(self, job, value):
         row = self.current(job)
-        if not row or row['stage'] != 'confirmed' or row['message'] != value or digest(value) != row['message_hash']:
+        if (not row or row['stage'] not in {'confirmed', 'draft_preserved'} or not row['receipt']
+                or not receipt_matches(row['message'], value) or digest(row['message']) != row['message_hash']):
             raise ValueError('Bozza priva di proprietà e ricevuta: conservata nel campo')
+        if not receipt_matches(row['message'], json.loads(row['receipt']).get('text')):
+            raise ValueError('Ricevuta di un testo diverso: bozza conservata nel campo')
         if not same_session(locate(job), json.loads(row['identity'])):
             raise ValueError('Identità della bozza cambiata: conservata nel campo')
         path = self.root / 'logs' / 'preserved-drafts' / (row['token'] + '.json')
@@ -361,12 +387,16 @@ class Delivery:
 
     def cleanup_needed(self, job):
         row = self.current(job)
-        return row is not None and row['stage'] == 'confirmed'
+        return row is not None and (row['stage'] == 'confirmed' or
+                                    row['stage'] == 'draft_preserved' and row['receipt_uuid'] is not None
+                                    and receipt_matches(row['message'], json.loads(row['receipt']).get('text')))
 
     def cancel_before_send(self, job):
         row = self.current(job)
         if row and row['stage'] in {'prepared', 'sending'}:
-            self.db.execute("UPDATE claude_timer_deliveries SET stage='draft_preserved' WHERE token=?", (row['token'],))
+            # Called only before Invoke. Keep the owned preparation reusable:
+            # typing during validation must not turn our draft into a foreign one.
+            self.db.execute("UPDATE claude_timer_deliveries SET stage='prepared',send_started=NULL WHERE token=?", (row['token'],))
             self.db.commit()
 
     def cleanup_done(self, job, action):

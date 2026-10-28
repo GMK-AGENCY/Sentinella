@@ -191,6 +191,7 @@ def tick(config, store, now=None, adapter=None, reconcile_only=False):
             delivery['own_draft'] = lambda: claude.prepare(job)
             reservation = claude.current(job)
             delivery['can_redraft'] = bool(reservation and reservation['stage'] == 'prepared' and reservation['send_started'] is None)
+            delivery['drafted'] = delivery['drafted'] or delivery['can_redraft']
         result = adapter(native_config, job, delivery, live_guard=guard) if claude else adapter(config, job, delivery)
         action = result.get("action")
         if action == "drafted":

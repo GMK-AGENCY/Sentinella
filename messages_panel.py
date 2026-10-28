@@ -118,13 +118,12 @@ class MessagesPanel(ttk.Frame):
             def update_label(*_,control=switch,value=var,repeated=col==1):
                 control.label.configure(text=('Ripeti' if value.get() else 'Una volta') if repeated else ('Invia anche' if value.get() else 'Attendi'))
             var.trace_add('write',update_label);update_label()
-        self.status_label=ttk.Label(self.write_page,textvariable=self.status,foreground='#a44324',wraplength=720)
-        self.status_label.pack(fill='x',pady=(4,0))
         bar=ttk.Frame(self.write_page);bar.pack(fill='x',pady=(8,0));self.editor_actions=bar
         self.commit_button=ttk.Button(bar,text='Salva modifiche',command=self.activate,style='Primary.TButton');self.commit_button.pack(side='right')
         self.save_text_button=ttk.Button(bar,text='Salva nei messaggi',command=lambda:self.library_callback());self.save_text_button.pack(side='right',padx=(0,8))
         ttk.Button(bar,text='Usa messaggio salvato',command=self.choose_saved_message).pack(side='right',padx=(0,8))
         self.history_button=ttk.Button(bar,text='Registro invii',command=self.show_history);self.history_button.pack(side='right',padx=(0,8))
+        self.status_label=ttk.Label(self.write_page,textvariable=self.status,foreground='#a44324',wraplength=720,anchor='e',justify='right')
         self.status.trace_add('write',self.show_status)
         self.show_status()
         self.editor_baseline=self.editor_signature()
@@ -136,7 +135,7 @@ class MessagesPanel(ttk.Frame):
         MessageLibraryChooser(self,self.use_saved_message)
 
     def show_status(self,*_):
-        if self.status.get():self.status_label.pack(fill='x',pady=(4,0),before=self.editor_actions)
+        if self.status.get():self.status_label.pack(fill='x',pady=(4,0),after=self.editor_actions)
         else:self.status_label.pack_forget()
 
     def show_editor(self):
