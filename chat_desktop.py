@@ -193,10 +193,12 @@ def step(config, job, delivery, live_guard=None):
     if not value.strip() or normalize(value) == normalize(edit.Name):
         value = ""
     message = job["message"]
+    from claude_delivery import receipt_matches
+    matches_message = receipt_matches(message, value) if app == 'claude' else value == message
     if delivery.get('cleanup'):
         if not value:
             return {**result, 'action': 'draft_cleared'}
-        if value != message:
+        if not receipt_matches(message, value):
             return {**result, 'action': 'draft_preserved', 'reason': 'Bozza modificata: conservata integralmente nel campo'}
         # The caller proves ownership and receipt, then fsyncs the exact draft
         # before allowing this one native cleanup. A changed draft is untouched.
@@ -217,7 +219,7 @@ def step(config, job, delivery, live_guard=None):
             return {**result, "reason": blocked}
         edit.GetValuePattern().SetValue(message, waitTime=0)
         return {**result, "action": "drafted"}
-    if value and (value != message or not delivery.get("drafted")):
+    if value and (not matches_message or not delivery.get("drafted")):
         return {**result, "reason": "Bozza presente: non viene sovrascritta né inviata"}
     if not value:
         if delivery.get("drafted") and not delivery.get('can_redraft'):
@@ -252,7 +254,8 @@ def step(config, job, delivery, live_guard=None):
                 composer = composers[0]
                 if job.get('send_when_present', True) and getattr(composer, 'HasKeyboardFocus', False) is True and typing_keys_down():
                     return False
-                return composer.GetValuePattern().Value == message
+                actual = composer.GetValuePattern().Value
+                return receipt_matches(message, actual) if app == 'claude' else actual == message
             return {**result, "action": "ready", "button": sends[0],
                     'validate_draft': validate_draft}
         if len(local) >= 130:

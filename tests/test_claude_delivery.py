@@ -44,6 +44,46 @@ class ClaudeDeliveryTests(unittest.TestCase):
                 self.assertLessEqual(abs(receipt['enqueue_at']-receipt['at']), .010)
                 self.assertEqual(receipt['delivery_id'], '22222222-2222-4222-8222-222222222222')
 
+    def test_text_blocks_with_system_context_and_contentless_enqueue_are_received(self):
+        rows = self.queued_chain(0)
+        text = rows[1]['attachment']['prompt']
+        context = '<system-reminder>Internal status</system-reminder>\n<system-reminder>Other status</system-reminder>\n\n'
+        rows[0].pop('content')
+        rows[1]['attachment']['prompt'] = [dict(type='text', text=context), dict(type='text', text=text)]
+        rows[2]['content'] = context + '\n' + text
+        self.write_records(rows)
+        receipt = read_receipt(self.identity, self.job['message'], 0)
+        self.assertEqual(receipt['text'], text)
+        self.assertEqual(receipt['origin'], 'human_mid_turn')
+
+    def test_context_receipt_still_requires_unique_enqueue_human_text_and_absorption(self):
+        import copy
+        for invalid in ('missing_enqueue', 'duplicate_enqueue', 'missing_absorption', 'wrong_ids', 'tool_block', 'changed_text', 'unclosed_context'):
+            with self.subTest(invalid=invalid):
+                rows = self.queued_chain(0)
+                text = rows[1]['attachment']['prompt']
+                rows[0].pop('content')
+                rows[1]['attachment']['prompt'] = [dict(type='text', text='<system-reminder>Internal status</system-reminder>\n\n'), dict(type='text', text=text)]
+                if invalid == 'missing_enqueue': rows.pop(0)
+                elif invalid == 'duplicate_enqueue': rows.insert(0, copy.deepcopy(rows[0]))
+                elif invalid == 'missing_absorption': rows.pop()
+                elif invalid == 'wrong_ids': rows[-1]['deliveryId'] = '44444444-4444-4444-8444-444444444444'
+                elif invalid == 'tool_block': rows[1]['attachment']['prompt'][0]['type'] = 'tool_result'
+                elif invalid == 'changed_text': rows[1]['attachment']['prompt'][1]['text'] += ' changed'
+                elif invalid == 'unclosed_context': rows[1]['attachment']['prompt'][0]['text'] = '<system-reminder>Internal status'
+                self.write_records(rows)
+                self.assertIsNone(read_receipt(self.identity, self.job['message'], 0))
+
+    def test_contentless_enqueue_alone_does_not_claim_our_message_is_queued(self):
+        rows = self.queued_chain(0)
+        rows[0].pop('content')
+        self.write_records(rows[:1])
+        self.assertIsNone(read_receipt(self.identity, self.job['message'], 0, pending_only=True))
+        self.write_records(rows[:2])
+        self.assertTrue(read_receipt(self.identity, self.job['message'], 0, pending_only=True)['queued'])
+        self.write_records(rows)
+        self.assertIsNone(read_receipt(self.identity, self.job['message'], 0, pending_only=True))
+
     def test_mid_turn_skew_beyond_bound_or_ambiguous_enqueue_is_not_a_receipt(self):
         import copy
         for invalid in ('too_late', 'too_early', 'duplicate', 'other_session', 'envelope_time', 'assistant_origin', 'wrong_ids'):
@@ -172,6 +212,20 @@ class ClaudeDeliveryTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.delivery.archive(self.job, 'Bozza personale')
         self.assertFalse((self.root / 'logs/preserved-drafts').exists())
 
+    def test_confirmed_trimmed_residue_recovers_without_losing_its_backup(self):
+        self.delivery.prepare(self.job); self.delivery.begin_send(self.job); self.user_message()
+        self.delivery.reconcile(self.job, self.state)
+        self.delivery.cleanup_done(self.job, 'draft_preserved')
+        self.assertTrue(self.delivery.cleanup_needed(self.job))
+        text = self.job['message'].rstrip(' ')
+        self.delivery.archive(self.job, text)
+        row = self.delivery.current(self.job)
+        payload = json.loads(Path(row['backup']).read_text(encoding='utf-8'))
+        self.assertEqual(payload['text'], text)
+        self.assertEqual(payload['sha256'], digest(text))
+        self.delivery.cleanup_done(self.job, 'draft_cleared')
+        self.assertFalse(self.delivery.cleanup_needed(self.job))
+
     def test_confirmation_survives_restart_without_duplicate_event(self):
         self.delivery.prepare(self.job); self.delivery.begin_send(self.job); self.user_message()
         self.delivery.reconcile(self.job, self.state)
@@ -210,6 +264,12 @@ class ClaudeDeliveryTests(unittest.TestCase):
             result = step({}, self.job, {'cleanup': True, 'archive': saved}, live_guard=lambda: None)
             self.assertEqual(result['action'], 'draft_cleared')
             saved.assert_called_once_with(self.job['message'])
+            pattern.SetValue.assert_called_once_with('', waitTime=0)
+            pattern.Value = self.job['message'].rstrip(' ')
+            saved.reset_mock(); pattern.SetValue.reset_mock()
+            result = step({}, self.job, {'cleanup': True, 'archive': saved}, live_guard=lambda: None)
+            self.assertEqual(result['action'], 'draft_cleared')
+            saved.assert_called_once_with(self.job['message'].rstrip(' '))
             pattern.SetValue.assert_called_once_with('', waitTime=0)
             pattern.Value = 'My draft'; pattern.SetValue.reset_mock(); saved.reset_mock()
             result = step({}, self.job, {'cleanup': True, 'archive': saved}, live_guard=lambda: None)
@@ -295,7 +355,28 @@ class ClaudeDeliveryTests(unittest.TestCase):
              patch('automation_policy.native_delivery_config', return_value={}):
             self.assertEqual(tick({}, self.store)['action'], 'draft_preserved')
             button.GetInvokePattern.assert_not_called()
-            self.assertEqual(self.delivery.current(self.job)['stage'], 'draft_preserved')
+            self.assertEqual(self.delivery.current(self.job)['stage'], 'prepared')
+            self.assertIsNone(self.delivery.current(self.job)['send_started'])
+
+    def test_cancelled_before_invoke_reuses_owned_draft_after_user_stops_typing(self):
+        self.delivery.prepare(self.job)
+        token = self.delivery.current(self.job)['token']
+        self.delivery.begin_send(self.job)
+        self.delivery.cancel_before_send(self.job)
+        self.store.update(self.job, 'idle', 'Typing interrupted validation')
+        button = Mock()
+        def adapter(config, job, delivery, **kwargs):
+            self.assertTrue(delivery['drafted'])
+            return {'action': 'ready', 'button': button}
+        with patch('message_engine.ROOT', self.root), patch('message_engine.load_jobs', return_value=[self.job]), \
+             patch('chat_desktop.step', side_effect=adapter), patch('automation_policy.action_block_reason', return_value=None), \
+             patch('automation_policy.live_block_reason', return_value=None), \
+             patch('automation_policy.native_delivery_config', return_value={}):
+            self.assertEqual(tick({}, self.store)['action'], 'awaiting_receipt')
+            self.assertEqual(self.delivery.current(self.job)['token'], token)
+            button.GetInvokePattern.return_value.Invoke.assert_called_once()
+            self.assertEqual(tick({}, self.store)['action'], 'awaiting_receipt')
+            button.GetInvokePattern.return_value.Invoke.assert_called_once()
 
     def test_preflight_failure_before_invoke_recovers_owned_draft_without_new_reservation(self):
         self.delivery.prepare(self.job)

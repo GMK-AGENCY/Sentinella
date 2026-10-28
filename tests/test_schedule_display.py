@@ -68,8 +68,8 @@ class DisplayTests(unittest.TestCase):
         job = {"id": "x", "version": "v", "enabled": True, "interval_seconds": 1800}
         state = {"version": "v", "phase": "uncertain", "due": 100, "local_stage": "reserved", "detail": "Bozza presente: non viene sovrascritta né inviata"}
         result = schedule_display(job, state, {}, 200)
-        self.assertEqual(result["status"], "Bozza da completare")
-        self.assertEqual(result["next"], "Bozza da completare")
+        self.assertEqual(result["status"], "Bozza nella chat")
+        self.assertEqual(result["next"], "Campo messaggio già compilato")
 
     def test_recent_native_send_is_in_verification_then_requires_attention(self):
         job = {"id": "x", "version": "v", "enabled": True, "interval_seconds": 1800}
@@ -116,4 +116,4 @@ class DisplayTests(unittest.TestCase):
 
     def test_future_retry_clock_does_not_hide_existing_draft(self):
         state = {'version':'new', 'due':self.now+30, 'detail':'Bozza presente: conservata'}
-        self.assertEqual(schedule_display(self.job,state,{},self.now)['next_precise'], 'Completa la bozza nella chat')
+        self.assertEqual(schedule_display(self.job,state,{},self.now)['next_precise'], 'Campo messaggio già compilato')
