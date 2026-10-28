@@ -1,5 +1,12 @@
 # Modifiche
 
+## 0.2.9
+
+- Revisione per la pubblicazione: rimosse anteprime e azioni non più raggiungibili, con meno letture periodiche delle configurazioni nell'editor.
+- Icone condivise e riuso dei font dell'agenda; abbreviazione dei testi lunghi con ricerca binaria invece di misurazioni ripetute per ogni carattere.
+- Test indipendenti dai dati del PC dello sviluppatore, cache delle dipendenze in CI e build con polling breve e limite complessivo per macchine più lente.
+- Comando Nuova programmazione coerente anche in dashboard.
+
 ## 0.2.8
 
 - Agenda con informazioni principali allineate sulla stessa riga e dettagli sulla seconda; i testi lunghi restano accessibili nei tooltip.

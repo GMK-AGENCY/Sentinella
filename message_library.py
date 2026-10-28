@@ -10,11 +10,12 @@ import uuid
 
 from runtime_paths import data_root
 from default_message_templates import LEGACY_TEMPLATE_TEXTS_BY_ID, starter_library
-from ui_components import AutoScrollbar, PlaceholderEntry
+from ui_components import AutoScrollbar, PlaceholderEntry, photo_icon
 from switch_control import Tooltip
 from unsaved_changes import resolve_unsaved
 
 PERSONAL_COLLECTION = str(uuid.uuid5(uuid.NAMESPACE_URL, 'sentinella://collections/personal'))
+CURRENT_TEMPLATE_TEXTS = {item['id']:item['text'] for item in starter_library()['items']}
 
 
 class MessageLibraryStore:
@@ -121,14 +122,13 @@ class MessageLibraryStore:
 
     def list(self, query="", collection_id=None):
         data=self._normalized(self._read());rows=data['items']
-        current = {item['id']: item for item in starter_library()['items']}
         # An overlay only: neither reads nor unrelated saves rewrite seeds.
         for item in rows:
             legacy = LEGACY_TEMPLATE_TEXTS_BY_ID.get(item['id'])
-            replacement = current.get(item['id'])
+            replacement = CURRENT_TEMPLATE_TEXTS.get(item['id'])
             if (legacy and replacement and not isinstance(item['updated_at'], bool) and item['updated_at'] == 0
                     and item['title'] == legacy['title'] and item['text'] == legacy['text']):
-                item['text'] = replacement['text']
+                item['text'] = replacement
         names={row['id']:row['name'] for row in data['collections']}
         query = query.casefold().strip()
         return sorted((dict(item) for item in rows if (collection_id is None or item['collection_id']==collection_id) and (not query or query in (item["title"] + "\n" + item["text"]+'\n'+names[item['collection_id']]).casefold())),
@@ -198,9 +198,8 @@ class MessageLibraryStore:
 
 
 class MessageLibraryPanel(ttk.Frame):
-    def __init__(self, parent, on_use):
+    def __init__(self, parent):
         super().__init__(parent, padding=20)
-        self.on_use = on_use
         self.store = MessageLibraryStore()
         self.selected_id = None
         self.baseline = ("", "")
@@ -229,7 +228,7 @@ class MessageLibraryPanel(ttk.Frame):
                     for point in range(5,15):image.put(color,to=(point,18-point,point+3,21-point))
                     image.put(color,to=(3,16,6,18))
                 else:
-                    for box in ((4,5,16,7),(8,3,12,5),(5,7,7,17),(14,7,16,17),(5,16,16,18),(9,9,10,15),(12,9,13,15)):image.put(color,to=box)
+                    image=photo_icon(self,'trash',size=20,color=color)
                 self.collection_icons[(icon,state)]=image
         self.delete_collection_button=ttk.Button(collection_actions,image=(self.collection_icons['delete','normal'],'disabled',self.collection_icons['delete','disabled']),style='LibraryIcon.TButton',command=self.remove_collection,state='disabled')
         self.delete_collection_button.pack(side='right')
@@ -431,22 +430,6 @@ class MessageLibraryPanel(ttk.Frame):
             self.tree.selection_remove(*self.tree.selection())
             self.status.set('')
 
-    def new_from_text(self, text):
-        """Stage a composer's text for naming; never save or send implicitly."""
-        try:
-            self.store._validate_text("Nuovo testo", text)
-        except ValueError as exc:
-            self.status.set(str(exc))
-            return False
-        if not self._may_leave():
-            return False
-        self._load()
-        self.text.insert("1.0", text)
-        self.text.edit_reset()
-        self.tree.selection_remove(*self.tree.selection())
-        self.status.set("Messaggio importato: scegli un nome per salvarlo nella raccolta.")
-        return True
-
     def save(self):
         title,text=self._values()
         self.title_error.set('');self.text_error.set('')
@@ -469,23 +452,6 @@ class MessageLibraryPanel(ttk.Frame):
         except (OSError, ValueError) as exc:
             self.status.set(str(exc))
             return False
-
-    def use(self):
-        if not self.may_leave():
-            return
-        text = self.text.get("1.0", "end-1c")
-        if not text.strip() or len(text) > 12000:
-            self.status.set("Inserisci un testo da 1 a 12000 caratteri da usare nel messaggio.")
-            return
-        # Read after resolving edits so a discarded draft is never copied.
-        try:
-            if self.on_use(text) is False:
-                self.status.set("Riuso annullato. Il testo nella raccolta è stato conservato.")
-                return
-        except (OSError, ValueError) as exc:
-            self.status.set(str(exc))
-            return
-        self.status.set("Messaggio copiato nella programmazione.")
 
     def remove(self):
         if not self.selected_id:

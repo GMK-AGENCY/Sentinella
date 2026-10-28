@@ -391,12 +391,16 @@ class WorkflowQA(unittest.TestCase):
         previous, _ = self.seed(enabled=False)
         self.panel.targets = [self.row, self.other]
         before = (self.profile / "messages-config.json").read_bytes()
-        panel = message_library.MessageLibraryPanel(self.root, self.panel.use_saved_message)
+        panel = message_library.MessageLibraryPanel(self.root)
         panel.title_value.set("Modello QA")
         panel.text.insert("1.0", "È letterale\n  spazio\n")
         self.assertTrue(panel.save())
         self.assertEqual(len(panel.store.list()), 1)
-        panel.use()
+        chooser=message_library.MessageLibraryChooser(self.root,self.panel.use_saved_message)
+        chooser.withdraw()
+        chooser.tree.selection_set(panel.selected_id)
+        chooser.select()
+        chooser.use()
         self.assertEqual(self.panel.message.get("1.0", "end-1c"), "È letterale\n  spazio\n")
         self.assertEqual(len(self.panel.targets), 2)
         self.assertEqual((self.profile / "messages-config.json").read_bytes(), before)
@@ -405,7 +409,7 @@ class WorkflowQA(unittest.TestCase):
 
     def test_library_dirty_cancel_select_new_and_delete_are_safe(self):
         (self.profile/'message-library.json').write_text('{"schema_version":1,"items":[]}',encoding='utf-8')
-        panel = message_library.MessageLibraryPanel(self.root, lambda _: True)
+        panel = message_library.MessageLibraryPanel(self.root)
         first = panel.store.save("Uno", "Testo uno")
         second = panel.store.save("Due", "Testo due")
         panel.refresh()

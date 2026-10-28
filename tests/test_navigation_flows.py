@@ -34,7 +34,7 @@ SOURCE = Path(__file__).resolve().parents[1]
 class NavigationFlowTests(unittest.TestCase):
     def setUp(self):
         self.production = {name: hashlib.sha256((SOURCE/name).read_bytes()).hexdigest()
-                           for name in ('approval-config.json','messages-config.json')}
+                           for name in ('approval-config.json','messages-config.json') if (SOURCE/name).exists()}
         self.temporary = tempfile.TemporaryDirectory(prefix='SentinellaNavigationQA_')
         self.profile = Path(self.temporary.name)
         ensure_local_files(self.profile)

@@ -7,6 +7,7 @@ import sys
 import importlib.metadata
 import shutil
 import uuid
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -61,18 +62,25 @@ def notices(bundle):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--iscc", type=Path)
+    parser.add_argument('--build-timeout',type=int,default=300)
     args = parser.parse_args()
+    if not 1<=args.build_timeout<=600:parser.error('Build timeout must be within 1..600 seconds')
     output=ROOT / "build" / ("windows-" + str(uuid.uuid4()))
     output.mkdir(parents=True)
     bundle=output / "dist/Sentinella"
     process = build(output)
     print(json.dumps({"build_pid":process.pid,"bundle":str(bundle)}),flush=True)
-    try:
-        result = process.wait(timeout=55)
-    except subprocess.TimeoutExpired:
-        from bounded_process import stop_owned
-        stop_owned(process, {})
-        raise SystemExit("Build did not finish within 55 seconds")
+    deadline=time.monotonic()+args.build_timeout
+    while True:
+        remaining=deadline-time.monotonic()
+        if remaining<=0:
+            from bounded_process import stop_owned
+            stop_owned(process,{})
+            raise SystemExit(f'Build did not finish within {args.build_timeout} seconds')
+        try:
+            result=process.wait(timeout=min(5,remaining))
+            break
+        except subprocess.TimeoutExpired:pass
     if result:
         raise SystemExit(result)
     notices(bundle)

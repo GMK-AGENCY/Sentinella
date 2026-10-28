@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import automation_policy
+import approvals_panel
 from config_store import ensure_local_files
 from default_message_templates import LEGACY_TEMPLATE_TEXTS_BY_ID, starter_library
 import message_library
@@ -117,6 +118,7 @@ class PanelUnsavedTests(unittest.TestCase):
             patch('message_library.data_root', return_value=self.profile),
             patch.object(automation_policy, 'ROOT', self.profile),
             patch.object(settings_panel, 'ROOT', self.profile),
+            patch.object(approvals_panel, 'ROOT', self.profile),
             patch.object(workspace_ui, 'ROOT', self.profile),
             patch('settings_panel.startup_enabled', return_value=False),
             patch('workspace_ui.startup_enabled', return_value=False),
@@ -131,7 +133,7 @@ class PanelUnsavedTests(unittest.TestCase):
         self.root = tk.Tk()
         self.root.withdraw()
         self.addCleanup(self.close_root)
-        self.library = message_library.MessageLibraryPanel(self.root, Mock(return_value=True))
+        self.library = message_library.MessageLibraryPanel(self.root)
         self.settings = settings_panel.SettingsPanel(self.root, Mock(), Mock(), Mock())
 
     def close_root(self):
@@ -192,44 +194,6 @@ class PanelUnsavedTests(unittest.TestCase):
         self.decision.return_value = 'discard'
         self.assertTrue(self.library.may_leave())
         self.assertEqual(self.library.text.get('1.0', 'end-1c'), 'Aggiornamento esterno')
-
-    def test_library_use_resolves_before_reading_so_discard_never_copies_wip(self):
-        item = self.saved_item()
-        self.library.text.insert('end', ' WIP')
-        self.library.use()
-        self.library.on_use.assert_not_called()
-        self.decision.return_value = 'discard'
-        self.library.use()
-        self.library.on_use.assert_called_once_with(item['text'])
-
-    def test_library_use_save_persists_then_copies_current_literal_text(self):
-        item = self.saved_item()
-        before_jobs = (self.profile / 'messages-config.json').read_bytes()
-        literal = 'Testo nuovo\n  spazi preservati\n'
-        self.library.title_value.set('Titolo aggiornato')
-        self.library.text.delete('1.0', 'end')
-        self.library.text.insert('1.0', literal)
-        self.decision.return_value = 'save'
-        self.library.use()
-        self.library.on_use.assert_called_once_with(literal)
-        persisted = self.library.store.get(item['id'])
-        self.assertEqual(persisted['title'], 'Titolo aggiornato')
-        self.assertEqual(persisted['text'], literal)
-        self.assertFalse(self.library.is_dirty())
-        self.assertEqual((self.profile / 'messages-config.json').read_bytes(), before_jobs)
-
-    def test_library_import_after_discard_stages_new_record_without_overwriting_old(self):
-        item = self.saved_item()
-        before = self.library.store.path.read_bytes()
-        self.library.text.insert('end', ' WIP da scartare')
-        self.decision.return_value = 'discard'
-        self.assertTrue(self.library.new_from_text('Nuovo testo importato\n'))
-        self.assertIsNone(self.library.selected_id)
-        self.assertEqual(self.library.title_value.get(), '')
-        self.assertEqual(self.library.text.get('1.0', 'end-1c'), 'Nuovo testo importato\n')
-        self.assertTrue(self.library.is_dirty())
-        self.assertEqual(self.library.store.path.read_bytes(), before)
-        self.assertEqual(self.library.store.get(item['id'])['text'], item['text'])
 
     def test_rename_collection_does_not_restore_a_discarded_collection_move(self):
         item = self.saved_item()

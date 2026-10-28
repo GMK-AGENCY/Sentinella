@@ -24,7 +24,7 @@ class MessagesPanel(ttk.Frame):
         super().__init__(parent, padding=20)
         self.selected_job=None;self.target=None;self.targets=[];self.chats={};self.catalog=[]
         self.scan_errors=[];self.filter_pending=None;self.results=queue.Queue();self.scan_running=False
-        self.last_render=0;self.last_preview=0;self.rendering_chats=False;self.rendering_jobs=False
+        self.last_render=0;self.rendering_chats=False;self.rendering_jobs=False
         self.editor_step=1;self.editor_baseline=None;self.editor_visible=False;self.loading_job=False
         self.status=tk.StringVar()
         self.catalog_status=tk.StringVar(value='Premi Aggiorna elenco per rilevare le chat aperte.')
@@ -118,9 +118,6 @@ class MessagesPanel(ttk.Frame):
             def update_label(*_,control=switch,value=var,repeated=col==1):
                 control.label.configure(text=('Ripeti' if value.get() else 'Una volta') if repeated else ('Invia anche' if value.get() else 'Attendi'))
             var.trace_add('write',update_label);update_label()
-        # Summary values remain available to validation, without duplicating the
-        # selected row and its timer below the options.
-        self.preview=tk.StringVar();self.recipient_summary=tk.StringVar()
         self.status_label=ttk.Label(self.write_page,textvariable=self.status,foreground='#a44324',wraplength=720)
         self.status_label.pack(fill='x',pady=(4,0))
         bar=ttk.Frame(self.write_page);bar.pack(fill='x',pady=(8,0));self.editor_actions=bar
@@ -130,7 +127,6 @@ class MessagesPanel(ttk.Frame):
         self.history_button=ttk.Button(bar,text='Registro invii',command=self.show_history);self.history_button.pack(side='right',padx=(0,8))
         self.status.trace_add('write',self.show_status)
         self.show_status()
-        for variable in (self.minutes,self.repeat,self.send_when_active,self.send_when_present):variable.trace_add('write',lambda *_:self.update_preview())
         self.editor_baseline=self.editor_signature()
         self.render_jobs()
         self.after(500,self.poll)
@@ -176,7 +172,6 @@ class MessagesPanel(ttk.Frame):
         self.commit_button.configure(text='Salva modifiche')
         self.history_button.pack(side='right',padx=(0,8))
         self.composer_title.set('Messaggio · '+(self.target or {}).get('title',''))
-        self.update_preview()
 
     def show_list(self):
         self.editor.pack_forget()
@@ -218,27 +213,7 @@ class MessagesPanel(ttk.Frame):
         self.commit_button.configure(text='Attiva programmazione')
         self.history_button.pack_forget()
         self.composer_title.set('Messaggio')
-        self.update_preview()
         self.status.set('')
-
-    def update_preview(self):
-        self.last_preview = time.monotonic()
-        try:
-            minutes = float(self.minutes.get().replace(",", "."))
-            if not 1 <= minutes <= 10080:
-                raise ValueError()
-            when = clock_label(time.time() + minutes * 60, time.time())
-            repetition = f"ogni {minutes:g} minuti" if self.repeat.get() else "una sola volta"
-            previous=next((job for job in load_jobs() if job['id']==self.selected_job),None)
-            text=(f"{repetition.capitalize()} · In pausa" if previous and not previous.get('enabled') else
-                  f"{repetition.capitalize()} · {getattr(self,'display_states',{}).get(previous['id'],{}).get('next_precise','')}" if previous else
-                  f"{len(self.targets)} chat · {repetition}. Primo invio tra {minutes:g} min dal salvataggio, alle {when}.")
-            if load_config().get("paused"):
-                text += " Sentinella è in pausa: gli invii aspettano la ripresa."
-            if self.preview.get() != text:
-                self.preview.set(text)
-        except (ValueError, OSError):
-            self.preview.set("Scegli un intervallo da 1 minuto a 7 giorni.")
 
     def click_chat(self, event):
         if self.chat_list.identify_region(event.x, event.y) != "cell":
@@ -299,14 +274,6 @@ class MessagesPanel(ttk.Frame):
         self.update_target_summary()
         self.status.set('')
         self.show_inline()
-
-    def toggle_selected(self):
-        selected = self.job_list.selection()
-        jobs = [job for job in load_jobs() if job["id"] in selected]
-        if not jobs:
-            self.status.set("Seleziona uno o più messaggi nell'elenco.")
-            return
-        self.set_enabled(not all(job.get("enabled") for job in jobs))
 
     def refresh(self):
         if self.scan_running:
@@ -572,13 +539,6 @@ class MessagesPanel(ttk.Frame):
         save_jobs(jobs)
         self.render_jobs()
 
-    def pause_all(self):
-        jobs = load_jobs()
-        for job in jobs:
-            job["enabled"] = False
-        save_jobs(jobs)
-        self.render_jobs()
-
     def render_jobs(self):
         self.last_render = time.monotonic()
         jobs = load_jobs()
@@ -646,8 +606,6 @@ class MessagesPanel(ttk.Frame):
         try:
             if self.winfo_ismapped() and not self.editor_visible and time.monotonic() - self.last_render >= 1:
                 self.render_jobs()
-            if self.winfo_ismapped() and self.editor_step == 2 and time.monotonic() - self.last_preview >= 5:
-                self.update_preview()
         except Exception as exc:
             self.status.set(f'Aggiornamento non riuscito: {exc}. Puoi riprovare.')
         finally:

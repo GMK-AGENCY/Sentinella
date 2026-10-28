@@ -1,8 +1,29 @@
 import copy
 from datetime import date, datetime
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
-from agenda_view import schedule_sections
+from agenda_view import schedule_sections, AgendaView
+
+
+class AgendaTextMeasurementTests(unittest.TestCase):
+    def test_long_titles_use_bounded_measurements_and_reuse_the_same_font(self):
+        view=SimpleNamespace(fonts={});label=Mock();label.cget.return_value='Same font'
+        font=Mock();font.measure.side_effect=lambda text:len(text)*6
+        with patch('agenda_view.tkfont.Font',return_value=font) as create:
+            for value in ('a'*5000,'b'*5000):
+                AgendaView.fit_text(view,label,value,120)
+                self.assertEqual(label.configure.call_args.kwargs['text'],value[:19]+'…')
+        create.assert_called_once_with(font='Same font')
+        self.assertLess(font.measure.call_count,32)
+
+    def test_short_text_and_unicode_content_remain_literal_when_they_fit(self):
+        view=SimpleNamespace(fonts={});label=Mock();label.cget.return_value='UI font'
+        font=Mock();font.measure.side_effect=lambda text:len(text)*6
+        with patch('agenda_view.tkfont.Font',return_value=font):
+            AgendaView.fit_text(view,label,'È pronto ✓',180)
+        label.configure.assert_called_once_with(text='È pronto ✓')
 
 
 class AgendaSectionsTests(unittest.TestCase):

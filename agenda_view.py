@@ -39,7 +39,7 @@ class AgendaView(tk.Frame):
     def __init__(self, parent, on_edit, on_toggle, on_history, on_new):
         super().__init__(parent, bg=BG)
         self.on_edit, self.on_toggle, self.on_history = on_edit, on_toggle, on_history
-        self.model = {}; self.rows = {}; self.order=[]; self.section_headers={}; self.diagnostic = None; self.diagnostic_labels = []
+        self.model = {}; self.rows = {}; self.order=[]; self.section_headers={}; self.diagnostic = None; self.diagnostic_labels = [];self.fonts={}
         style=ttk.Style(self)
         style.configure('AgendaAction.TButton',font=('Segoe UI',10),padding=(7,5))
         self.summary=tk.Frame(self,bg=BG); self.summary.pack(fill='x',pady=(0,18))
@@ -47,7 +47,7 @@ class AgendaView(tk.Frame):
         for color,fg in (('#e4f3ec','#176d48'),('#e9edf3','#5a6a80'),('#fff0d9','#91580d')):
             label=tk.Label(self.summary,bg=color,fg=fg,font=('Segoe UI',10,'bold'),padx=13,pady=6)
             label.pack(side='left',padx=(0,10));self.badges.append(label)
-        ttk.Button(self.summary,text='+ Nuovo messaggio',command=on_new,style='Primary.TButton').pack(side='right')
+        ttk.Button(self.summary,text='+ Nuova programmazione',command=on_new,style='Primary.TButton').pack(side='right')
         heading=tk.Frame(self,bg=BG);heading.pack(fill='x',pady=(0,12))
         tk.Label(heading,text='Agenda del giorno',bg=BG,fg=INK,font=('Segoe UI',12,'bold')).pack(side='left')
         tk.Label(heading,text='Ordine: prossimo invio ↓',bg=BG,fg=MUTED,font=('Segoe UI',10)).pack(side='right')
@@ -89,12 +89,17 @@ class AgendaView(tk.Frame):
     def fit_title(self,row,available):
         self.fit_text(row['title'],row['record']['title'],available)
 
-    @staticmethod
-    def fit_text(label,text,available):
-        font=tkfont.Font(font=label.cget('font'))
+    def fit_text(self,label,text,available):
+        specification=str(label.cget('font'))
+        if specification not in self.fonts:self.fonts[specification]=tkfont.Font(font=specification)
+        font=self.fonts[specification]
         if font.measure(text)>available:
-            while text and font.measure(text+'…')>available:text=text[:-1]
-            text+='…'
+            low,high=0,len(text)
+            while low<high:
+                middle=(low+high+1)//2
+                if font.measure(text[:middle]+'…')<=available:low=middle
+                else:high=middle-1
+            text=text[:low]+'…'
         label.configure(text=text)
 
     def build_row(self,record):

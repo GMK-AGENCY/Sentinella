@@ -1,6 +1,25 @@
-# Sentinella
+# Sentinella — automazioni per Codex e Claude su Windows
 
-Applicazione locale per Windows che controlla notifiche e richieste di Codex e Claude e invia messaggi programmati alle chat selezionate.
+**Programma messaggi, gestisci le richieste delle chat e segui il lavoro dei tuoi assistenti AI anche quando non sei al PC.**
+
+Sentinella è un'app gratuita e open source per Windows, con interfaccia in italiano. Lavora con le applicazioni desktop **OpenAI Codex** e **Claude**: invia messaggi programmati alle chat selezionate, rileva domande e gestisce i consensi file nelle cartelle che hai autorizzato.
+
+[Scarica Sentinella per Windows](https://github.com/GMK-AGENCY/Sentinella/releases/latest) · [Installazione](#installazione) · [Segnala un problema](https://github.com/GMK-AGENCY/Sentinella/issues/new/choose)
+
+**Windows 11 a 64 bit · Italiano · Licenza MIT · Installer senza Python da installare**
+
+## Cosa puoi fare
+
+| Funzione | A cosa serve |
+| --- | --- |
+| Messaggi programmati per Codex e Claude | Scegli le chat, scrivi il messaggio e imposta un invio singolo o periodico. |
+| Invii durante il lavoro | Consenti, per ogni programmazione, l'invio mentre la chat lavora o mentre usi il PC. |
+| Risposte durante l'assenza | Conserva le domande per il tuo ritorno e invita la chat a continuare le attività indipendenti già autorizzate. |
+| Consensi nelle cartelle autorizzate | Gestisci richieste riconoscibili di lettura e scrittura solo nei percorsi scelti. |
+| Raccolta di messaggi | Organizza testi riutilizzabili senza riscriverli a ogni programmazione. |
+| Agenda e registro invii | Vedi cosa è previsto, perché un invio è in attesa e quali consegne hanno una ricevuta. |
+
+Le bozze nelle chat restano protette. Un invio senza ricevuta non viene ripetuto automaticamente.
 
 Il timer gira nel programma: **non richiede una chat di controllo o automazioni di un agente**. Per Codex, l'invio e la lettura della ricevuta sono gestiti dal processo locale di Sentinella.
 
@@ -8,7 +27,7 @@ Il timer gira nel programma: **non richiede una chat di controllo o automazioni 
 
 Requisiti: Windows 11 a 64 bit e le app desktop che si desidera controllare. **La versione Windows installabile include Python e tutte le dipendenze: non devi installare Python.** Non serve una chiave API OpenAI.
 
-1. Scarica `Sentinella-0.2.8-Windows-x64-Setup.exe` dalla release.
+1. Scarica `Sentinella-0.2.9-Windows-x64-Setup.exe` dalla release.
 2. Esegui l'installer per il tuo utente: non richiede diritti di amministratore.
 3. Avvia **Sentinella** dal menu Start. Il primo avvio è in pausa.
 4. In **Impostazioni**, premi **Rileva applicazioni**, scegli le funzioni e le cartelle già autorizzate, poi togli la pausa quando sei pronto.

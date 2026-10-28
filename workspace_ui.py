@@ -331,15 +331,7 @@ def build_workspace(app):
     app.pause_automations = ttk.Button(actions, command=app.toggle_automations, style='Primary.TButton', padding=(18,12))
     app.pause_automations.pack(anchor='e')
     app.pause_tooltip = Tooltip(app.pause_automations, '')
-    app.pause_icons = {}
-    for name in ('play', 'pause'):
-        icon = tk.PhotoImage(master=root, width=25, height=20)
-        if name == 'pause':
-            icon.put('white', to=(2,3,7,17)); icon.put('white', to=(10,3,15,17))
-        else:
-            for y in range(3,18):
-                icon.put('white', to=(3,y,4+max(0,7-abs(10-y)),y+1))
-        app.pause_icons[name] = icon
+    app.pause_icons = {name:photo_icon(root,name,size=20,color='white') for name in ('play','pause')}
     apply_runtime_status(app, load_config().get('paused', False))
     app.notebook = ttk.Notebook(main, style='Workspace.TNotebook'); app.notebook.pack(fill='both', expand=True)
     overview = ttk.Frame(app.notebook, style='Surface.TFrame')
@@ -347,10 +339,7 @@ def build_workspace(app):
     from settings_panel import SettingsPanel
     app.messages_panel = MessagesPanel(app.notebook)
     from message_library import MessageLibraryPanel
-    def use_library_text(text):
-        if not app.messages_panel.use_saved_message(text):return False
-        return app.navigate_to(app.messages_panel)
-    app.library_panel = MessageLibraryPanel(app.notebook, use_library_text)
+    app.library_panel = MessageLibraryPanel(app.notebook)
     app.history_panel = HistoryPanel(app.notebook)
     notifications = ttk.Frame(app.notebook, padding=20)
     settings = app.settings_panel = SettingsPanel(app.notebook, app.refresh_dashboard, lambda: os.startfile(str(ROOT / 'logs')), app.restart_reader)

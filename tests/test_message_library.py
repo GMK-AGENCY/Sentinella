@@ -198,32 +198,6 @@ class LibraryTests(unittest.TestCase):
             self.store.save("Missing", "Text", "missing")
         self.assertEqual(self.store.get(one["id"])["text"], "Literal")
 
-    def test_use_only_calls_text_callback_and_never_saves(self):
-        view = SimpleNamespace(text=Mock(), status=Mock(), on_use=Mock(), store=Mock(), may_leave=Mock(return_value=True))
-        view.text.get.return_value = "Testo letterale\n"
-        MessageLibraryPanel.use(view)
-        view.on_use.assert_called_once_with("Testo letterale\n")
-        view.store.save.assert_not_called()
-        self.assertFalse((self.root / "messages.sqlite3").exists())
-
-    def test_cancelled_composer_reuse_does_not_claim_text_copied(self):
-        view = SimpleNamespace(text=Mock(), status=Mock(), on_use=Mock(return_value=False), may_leave=Mock(return_value=True))
-        view.text.get.return_value = "Literal"
-        MessageLibraryPanel.use(view)
-        self.assertIn("annullato", view.status.set.call_args.args[0])
-
-    def test_new_from_text_stages_without_saving_and_respects_dirty_cancel(self):
-        view = SimpleNamespace(store=self.store, status=Mock(), _may_leave=Mock(return_value=False),
-                               _load=Mock(), text=Mock(), tree=Mock())
-        view.tree.selection.return_value = ()
-        self.assertFalse(MessageLibraryPanel.new_from_text(view, "Literal\n"))
-        view._load.assert_not_called()
-        view._may_leave.return_value = True
-        self.assertTrue(MessageLibraryPanel.new_from_text(view, "Literal\n"))
-        view._load.assert_called_once_with()
-        view.text.insert.assert_called_once_with("1.0", "Literal\n")
-        self.assertEqual(self.store.list(),[])
-
     def test_default_path_uses_runtime_profile(self):
         with patch("message_library.data_root", return_value=self.root):
             store = MessageLibraryStore()
@@ -260,7 +234,7 @@ class CollectionInterfaceTests(unittest.TestCase):
         style.configure('Treeview',font=('Segoe UI',10),rowheight=36);style.configure('Treeview.Heading',font=('Segoe UI',10,'bold'),padding=(8,10))
         sidebar=ttk.Frame(self.root,width=192);sidebar.pack(side='left',fill='y')
         main=ttk.Frame(self.root,padding=(24,22));main.pack(side='left',fill='both',expand=True)
-        self.panel=MessageLibraryPanel(main,Mock(return_value=True));self.panel.pack(fill='both',expand=True)
+        self.panel=MessageLibraryPanel(main);self.panel.pack(fill='both',expand=True)
         self.root.deiconify()
 
     def tearDown(self):
@@ -324,7 +298,7 @@ class CollectionInterfaceTests(unittest.TestCase):
         self.assertTrue(panel.save())
         self.assertEqual(panel.store.get(key)['collection_id'],panel.collection_options['Riepiloghi'])
         self.assertEqual(len(panel.store.list()),12)
-        panel.use();panel.on_use.assert_called_once_with(literal)
+        self.assertEqual(panel.store.get(key)["text"],literal)
 
     def test_collection_controls_fit_at_both_workspace_sizes_and_fields_align(self):
         from tkinter import ttk

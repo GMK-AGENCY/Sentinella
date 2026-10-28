@@ -1,31 +1,47 @@
-name: Windows tests
+name: Verifiche Windows
 on:
   push:
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
   tests:
+    name: Collaudo e pacchetti Windows
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Scarica i sorgenti
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - name: Prepara Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-      - run: python -m pip install -r requirements.txt
-      - run: python -m pip check
-      - run: python -m unittest discover -s tests
-      - shell: pwsh
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+      - name: Installa le dipendenze
+        run: python -m pip install -r requirements.txt
+      - name: Verifica le dipendenze
+        run: python -m pip check
+      - name: Esegui i test
+        run: python -m unittest discover -s tests
+      - name: Prepara il pacchetto sorgenti
+        shell: pwsh
         run: |
           $version = python -c "from app_version import VERSION; print(VERSION)"
           python tools/build_release.py --output "dist/Sentinella-source-$version.zip"
-      - run: python -m pip install -r requirements-build.txt
-      - run: python tools/check_python.py
-      - run: python tools/build_windows.py
-      - shell: pwsh
+      - name: Installa gli strumenti di compilazione
+        run: python -m pip install -r requirements-build.txt
+      - name: Controlla il codice Python
+        run: python tools/check_python.py
+      - name: Compila l'applicazione autonoma
+        run: python tools/build_windows.py
+      - name: Verifica l'eseguibile senza Python esterno
+        shell: pwsh
         run: |
           $bundle = (Get-Content build/latest-windows.json | ConvertFrom-Json).bundle
           $env:SENTINELLA_DATA_DIR = Join-Path $env:RUNNER_TEMP 'sentinella-binary-check'
@@ -34,7 +50,7 @@ jobs:
           if ($process.ExitCode -ne 0) { throw 'Binary dependency check failed' }
           $result = Get-Content build/diagnose.json | ConvertFrom-Json
           if (-not $result.frozen -or -not $result.dependencies_loaded) { throw 'Standalone binary is incomplete' }
-      - name: Compile installer and checksums
+      - name: Compila l'installer e calcola gli hash
         shell: pwsh
         run: |
           $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
@@ -46,7 +62,8 @@ jobs:
           Get-ChildItem -Path dist/Sentinella-*.zip,dist/Sentinella-*-Setup.exe -File |
             ForEach-Object { '{0}  {1}' -f (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLower(), $_.Name } |
             Set-Content -Encoding utf8 "dist/Sentinella-$version-SHA256SUMS.txt"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - name: Conserva i pacchetti verificati
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: Sentinella-Windows-x64
           path: dist/Sentinella-*
