@@ -1,0 +1,33 @@
+name: Proponi un miglioramento
+description: Descrivi il problema e il risultato desiderato.
+title: "[Proposta] "
+body:
+  - type: markdown
+    attributes:
+      value: Non inserire conversazioni, destinatari o dati del tuo profilo. Per un errore usa il modulo di segnalazione; per vulnerabilità segui SECURITY.md.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Quale problema vuoi risolvere?
+      description: Descrivi l'obiettivo dell'utente con un esempio sintetico.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Comportamento desiderato
+      description: Indica cosa dovrebbe accadere e come verificare che il miglioramento sia utile.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternative considerate
+      description: Eventuali soluzioni già provate e relativi limiti.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Controllo dei dati
+      options:
+        - label: La proposta non contiene dati personali, configurazioni o credenziali.
+          required: true

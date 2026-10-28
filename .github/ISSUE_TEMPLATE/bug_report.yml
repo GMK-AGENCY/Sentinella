@@ -1,0 +1,60 @@
+name: Segnala un problema
+description: Un comportamento riproducibile di Sentinella, senza dati personali.
+title: "[Problema] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Per vulnerabilità o possibili invii/consensi fuori ambito, leggi SECURITY.md e usa il canale privato disponibile. Non incollare configurazioni, chat, ricevute complete o credenziali.
+  - type: input
+    id: version
+    attributes:
+      label: Versione di Sentinella
+      description: Visibile nella barra laterale o nelle Impostazioni. Indica anche installer oppure sorgenti.
+      placeholder: "0.x.y — installer Windows"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Windows e applicazione coinvolta
+      description: Versione di Windows, app desktop e sua versione; non inserire il nome del tuo profilo.
+      placeholder: "Windows 11 — app desktop e versione"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Come riprodurre
+      description: Passaggi minimi usando nomi e file di prova. Indica se Sentinella è in pausa e quali opzioni sono abilitate, senza allegare la configurazione.
+      placeholder: |
+        1. Apri un profilo di prova...
+        2. Seleziona...
+        3. Osserva...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Risultato atteso
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Risultato osservato
+      description: Riporta l'errore essenziale e se si ripete. Distingui un invio iniziato da una ricezione verificata.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidenza facoltativa anonimizzata
+      description: Solo righe o immagini necessarie. Rimuovi nomi, percorsi, identificativi, messaggi, credenziali e contenuti delle altre finestre.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Controllo dei dati
+      options:
+        - label: Ho controllato testo e allegati e non sto pubblicando dati personali, configurazioni o credenziali.
+          required: true

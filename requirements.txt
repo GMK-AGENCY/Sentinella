@@ -1,0 +1,11 @@
+winrt-runtime==3.2.1
+winrt-Windows.UI.Notifications.Management==3.2.1
+winrt-Windows.UI.Notifications==3.2.1
+winrt-Windows.Foundation==3.2.1
+winrt-Windows.Foundation.Collections==3.2.1
+winrt-Windows.Data.Xml.Dom==3.2.1
+winrt-Windows.ApplicationModel==3.2.1
+uiautomation==2.0.29
+psutil==7.2.2
+comtypes==1.4.17
+typing_extensions==4.16.0
