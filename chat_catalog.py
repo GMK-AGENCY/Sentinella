@@ -29,24 +29,29 @@ def epoch(value):
             return None
 
 
-def codex_metadata(titles, path=None):
+def codex_metadata(titles, path=None, thread_ids=()):
     if path is None:
-        candidates = list((Path.home() / ".codex").glob("state_[0-9]*.sqlite"))
+        candidates = list(Path(os.environ.get('CODEX_HOME',Path.home()/'.codex')).glob("state_[0-9]*.sqlite"))
         path = max(candidates, key=lambda p: int(p.stem.split("_")[-1])) if candidates else None
-    if not path or not titles:
+    if not path or not (titles or thread_ids):
         return []
     connection = sqlite3.connect(Path(path).as_uri() + "?mode=ro", uri=True, timeout=0.2)
     try:
         connection.execute("PRAGMA query_only=ON")
         connection.row_factory = sqlite3.Row
         slots = ",".join("?" for _ in titles)
+        clauses=[];args=[]
+        if titles:
+            clauses.append(f'(t.name IN ({slots}) OR t.title IN ({slots}))');args += [*titles,*titles]
+        if thread_ids:
+            clauses.append('t.id IN ('+','.join('?' for _ in thread_ids)+')');args += list(thread_ids)
         sql = f"""SELECT t.id AS thread_id, COALESCE(NULLIF(t.name,''),t.title) AS title, t.cwd,
                          t.updated_at_ms, t.updated_at, t.recency_at_ms, t.recency_at,
                          p.name AS project
                   FROM threads t LEFT JOIN projects p ON p.id=t.project_id
-                  WHERE t.archived=0 AND (t.name IN ({slots}) OR t.title IN ({slots}))"""
+                  WHERE t.archived=0 AND ({' OR '.join(clauses)})"""
         result = []
-        for row in connection.execute(sql, [*titles, *titles]):
+        for row in connection.execute(sql, args):
             dates = [epoch(row[key]) for key in ("updated_at_ms", "updated_at", "recency_at_ms", "recency_at")]
             result.append({"thread_id": row["thread_id"], "title": row["title"], "project": project_name(row["project"] or row["cwd"]), "last_activity_at": max((n for n in dates if n is not None), default=None)})
         return result
@@ -85,7 +90,7 @@ def claude_header(path):
     return fields
 
 
-def claude_metadata(titles, roots=None):
+def claude_metadata(titles, roots=None, session_ids=()):
     if roots is None:
         local = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local"))
         roots = list((local / "Claude-Data").glob("claude_*"))
@@ -101,7 +106,8 @@ def claude_metadata(titles, roots=None):
                 return result
             try:
                 row = claude_header(path)
-                if row.get("title") not in titles or row.get("isArchived"):
+                sid=path.stem.removeprefix('local_')
+                if (row.get("title") not in titles and sid not in session_ids) or row.get("isArchived"):
                     continue
                 result.append({"title": row["title"], "session_id": path.stem.removeprefix('local_'), "project": project_name(row.get("originCwd") or row.get("cwd")), "last_activity_at": epoch(row.get("lastActivityAt") or row.get("createdAt"))})
             except (OSError, ValueError):

@@ -89,7 +89,7 @@ class WorkflowQA(unittest.TestCase):
         self.row = {"app": "codex", "title": "QA Codex", "group": "QA Project",
                     "project": "QA Project", "state": "idle", "last_activity_at": time.time(),
                     "thread_id": "11111111-1111-4111-8111-111111111111"}
-        self.other = {**self.row, "app": "claude", "title": "QA Claude", "thread_id": None}
+        self.other = {**self.row, "app": "claude", "title": "QA Claude", "thread_id": None,"session_id":"22222222-2222-4222-8222-222222222222"}
 
     def tearDown(self):
         try:

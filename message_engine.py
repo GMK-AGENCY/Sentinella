@@ -17,9 +17,20 @@ def load_jobs():
 
 
 def save_jobs(jobs):
-    temporary = CONFIG.with_suffix(".tmp")
-    temporary.write_text(json.dumps({"jobs": jobs}, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(CONFIG)
+    from chat_identity import config_lock
+    with config_lock(CONFIG):
+        if CONFIG.exists():
+            from chat_identity import key
+            saved={j['id']:j for j in json.loads(CONFIG.read_text(encoding='utf-8')).get('jobs',[])}
+            jobs=[dict(j) for j in jobs]
+            for job in jobs:
+                current=saved.get(job['id'])
+                if current and current.get('version')==job.get('version') and (not key(job)[1] or key(current)==key(job)):
+                    for field in ('thread_id','session_id','title','project'):
+                        if field in current:job[field]=current[field]
+        temporary = CONFIG.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"jobs": jobs}, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(CONFIG)
 
 
 def validate_job(job):
@@ -179,6 +190,12 @@ def tick(config, store, now=None, adapter=None, reconcile_only=False):
             continue
         if state["phase"] in {"uncertain", "finished"} or state["due"] > now or store.retry_pending(job, now):
             continue
+        if live_adapter:
+            from chat_identity import key
+            if not key(job)[1]:
+                store.update(job,state['phase'],'Identità della chat da verificare: nessun invio senza ID')
+                store.defer(job,now)
+                continue
         # A selected, enabled timer is its own delegation. The app's enabled
         # switch controls absence replies and file approvals, independently.
         blocked = action_block_reason(native_config) if live_adapter else None

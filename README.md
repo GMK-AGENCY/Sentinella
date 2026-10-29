@@ -27,7 +27,7 @@ Il timer gira nel programma: **non richiede una chat di controllo o automazioni 
 
 Requisiti: Windows 11 a 64 bit e le app desktop che si desidera controllare. **La versione Windows installabile include Python e tutte le dipendenze: non devi installare Python.** Non serve una chiave API OpenAI.
 
-1. Scarica `Sentinella-0.2.13-Windows-x64-Setup.exe` dalla release.
+1. Scarica `Sentinella-0.2.14-Windows-x64-Setup.exe` dalla release.
 2. Esegui l'installer per il tuo utente: non richiede diritti di amministratore.
 3. Avvia **Sentinella** dal menu Start. Il primo avvio è in pausa.
 4. In **Impostazioni**, premi **Rileva applicazioni**, scegli le funzioni e le cartelle già autorizzate, poi togli la pausa quando sei pronto.
@@ -57,8 +57,8 @@ La **Panoramica** mostra ogni messaggio con frequenza, prossima attività e ulti
 **Messaggi salvati** conserva testi riutilizzabili. Usare un testo compila l'editor, senza creare o inviare una programmazione.
 
 - La programmazione conserva ID, versione, testo, scadenza e ultimo invio in modo persistente.
-- Codex viene identificato attraverso l'ID della chat e il titolo verificato, non scegliendo una chat dal nome simile.
-- I titoli duplicati bloccano l'invio nativo. La chat deve essere disponibile nella barra laterale.
+- Codex e Claude vengono identificati tramite l'ID stabile della chat. Il nome corrente viene risolto da quell'ID: una rinomina non crea una nuova programmazione e non azzera il timer. Le programmazioni precedenti vengono associate all'ID quando l'identità è verificabile, con backup e senza cambiare versioni, bozze o scadenze.
+- La selezione nella barra laterale richiede un collegamento univoco all'ID. Se questo non è verificabile, l'invio si ferma senza scegliere una chat omonima. In Claude la chat già aperta viene verificata anche tramite l'ID nel documento nativo, distinguendola dalle pagine del browser integrato.
 - Il controllo **Invia anche mentre lavora** permette la consegna alla chat attiva tramite il suo pulsante nativo, su entrambe le applicazioni. Le altre programmazioni aspettano che la chat sia libera.
 - **Invia anche mentre uso il PC** consente gli invii nativi durante l’uso del PC, selezionando la chat esatta quando l’app destinataria è in background, senza prendere il focus. Se stai usando un’altra chat nella stessa app, aspetta per non interromperti. Durante la digitazione nel campo messaggio aspetta una breve pausa. Se spento, vale l'inattività impostata. È spento per nuove programmazioni; i messaggi già configurati conservano il comportamento precedente. Cambiare soltanto queste opzioni mantiene la scadenza esistente.
 - Una bozza dell'utente, un dialogo aperto, una pausa o un'identità non verificabile impediscono l'invio.

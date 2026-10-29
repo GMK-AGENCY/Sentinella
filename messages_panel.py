@@ -315,7 +315,8 @@ class MessagesPanel(ttk.Frame):
 
     @staticmethod
     def identity(row):
-        return row["app"], row["title"], row["group"]
+        from chat_identity import key
+        return key(row) if key(row)[1] else (row['app'],row['title'],row['group'])
 
     def apply_filters(self, wanted=None):
         self.filter_pending = None
@@ -405,6 +406,7 @@ class MessagesPanel(ttk.Frame):
 
     def activate(self):
         try:
+            identity=MessagesPanel.identity
             if not self.targets or any(row.get("ambiguous") for row in self.targets):
                 raise ValueError("Scegli almeno una chat senza nomi duplicati. Se il nome è duplicato, rinomina la chat nell’app e aggiorna l’elenco.")
             jobs = load_jobs()
@@ -413,7 +415,11 @@ class MessagesPanel(ttk.Frame):
             saved = []
             preserved_schedule = False
             for target in self.targets:
-                previous = next((j for j in jobs if (j['app'], j['title'], j['group']) == (target['app'], target['title'], target['group'])), None)
+                previous = next((j for j in jobs if j['id']==self.selected_job),None) if self.selected_job else None
+                previous = previous or next((j for j in jobs if identity(j)==identity(target)),None)
+                if previous is None and len(identity(target))==3:
+                    legacy=[j for j in jobs if (j['app'],j['title'],j['group'])==(target['app'],target['title'],target['group'])]
+                    if len(legacy)==1:previous=legacy[0]
                 job_id = previous["id"] if previous else str(uuid.uuid4())
                 # Re-selecting a sidebar row must not erase its pinned thread
                 # identity, transport, or explicit send-while-active policy.
@@ -421,17 +427,22 @@ class MessagesPanel(ttk.Frame):
                 if editing_existing and target.get('version')!=previous.get('version'):
                     raise ValueError('La programmazione è cambiata mentre la modificavi. Il testo resta nell’editor; ricarica la programmazione prima di salvare.')
                 job = {**(previous or {}), **target, "id": job_id, "version": str(uuid.uuid4()), "enabled": bool(previous.get('enabled')) if editing_existing else True, "activated_at": time.time(), "interval_seconds": float(self.minutes.get().replace(",", ".")) * 60, "message": self.message.get("1.0", "end-1c"), "repeat": self.repeat.get()}
+                if previous and identity(previous)==identity(target):
+                    for field in ('title','group','project','thread_id','session_id'):
+                        if field in previous:job[field]=previous[field]
                 if job["app"] == "codex":
                     if not job.get("thread_id"):
                         raise ValueError("Aggiorna l'elenco per verificare l'identità della chat prima di programmare l'invio.")
                     job["transport"] = "codex_app"
+                elif not previous and not job.get('session_id'):
+                    raise ValueError("Aggiorna l'elenco per verificare l'ID della sessione Claude prima di programmare l'invio.")
                 active_option = getattr(self, "send_when_active", None)
                 if active_option is not None:
                     job["send_when_active"] = bool(active_option.get())
                 present_option = getattr(self, 'send_when_present', None)
                 if present_option is not None:
                     job['send_when_present'] = bool(present_option.get())
-                if previous and all(job.get(k) == previous.get(k) for k in ['message', 'interval_seconds', 'repeat', 'app', 'title', 'group', 'thread_id', 'transport']):
+                if previous and identity(job)==identity(previous) and all(job.get(k) == previous.get(k) for k in ['message', 'interval_seconds', 'repeat', 'app', 'thread_id', 'session_id', 'transport']):
                     job['version'] = previous['version']
                     job['activated_at'] = previous['activated_at']
                     preserved_schedule = True

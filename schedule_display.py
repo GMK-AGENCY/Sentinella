@@ -34,6 +34,8 @@ def _schedule_display(job, stored, config, now, waiting_reason=None):
                 'detail':'Stai usando un’altra chat nell’app destinataria. L’invio riprende in background senza spostare il focus o sovrascrivere il testo che stai scrivendo.'}
     if phase != 'finished' and before_send and 'impossibile verificare l’applicazione in primo piano' in detail:
         return {**result,'status':'Chat da verificare','next':'Verifica disponibilità dell’app'}
+    if phase != 'finished' and before_send and ('id della chat' in detail or 'identità della chat' in detail):
+        return {**result,'status':'Chat da verificare','next':'ID della sessione da verificare'}
     if phase == "uncertain":
         if 'bozza scomparsa' in result['detail'].casefold():
             return {**result, 'status':'Da verificare', 'next':'Controlla il registro'}

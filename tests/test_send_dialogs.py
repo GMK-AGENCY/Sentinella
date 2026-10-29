@@ -74,6 +74,7 @@ class SendDialogTests(unittest.TestCase):
             root = Path(folder); history = root/'history.jsonl'; history.write_text('')
             identity = {'history': str(history), 'session': 'test-session', 'index': 'index'}
             job = dict(id='job', version='v', app='claude', title='Exact chat', group='Tests',
+                       session_id='fixture-ui-session',
                        message='Authorized periodic message', enabled=True, interval_seconds=1800,
                        activated_at=0, repeat=True, send_when_active=True, send_when_present=True)
             store = TimerStore(root/'messages.sqlite3')
@@ -95,6 +96,8 @@ class SendDialogTests(unittest.TestCase):
             panels = [dialog(offscreen=True), dialog(properties='modal=false')]
             nodes = [edit, send, *panels]
             with patch('message_engine.ROOT', root), patch('message_engine.load_jobs', return_value=[job]), \
+                 patch('chat_identity.resolve',side_effect=lambda job:dict(job)), \
+                 patch('chat_desktop.selected_matches',side_effect=lambda controls,title,job:title==job['title']), \
                  patch('claude_delivery.locate', return_value=identity), \
                  patch('automation_policy.native_delivery_config', return_value={}), \
                  patch('automation_policy.action_block_reason', return_value=None), \

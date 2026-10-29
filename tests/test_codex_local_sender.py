@@ -27,6 +27,20 @@ class Button:
 
 
 class LocalSenderTests(unittest.TestCase):
+    def test_rename_after_draft_sends_once_to_the_same_id_and_receipt(self):
+        button=Button();seen=[]
+        def adapter(config,job,delivery):
+            seen.append((job['thread_id'],job['title']))
+            return {'action':'ready','button':button} if delivery['drafted'] else {'action':'drafted'}
+        self.assertEqual(self.tick(2000,adapter)['action'],'drafted')
+        self.metadata=lambda job:{'id':'thread-1','name':'Renamed Regia','rollout_path':str(self.path)}
+        self.observe=lambda *_:('Renamed Regia','active')
+        self.assertEqual(self.tick(2001,adapter)['action'],'awaiting_receipt')
+        self.assertEqual(seen[-1],('thread-1','Renamed Regia'));self.assertEqual(button.calls,1)
+        self.append(self.job['message'])
+        self.assertEqual(self.tick(2003,adapter)['action'],'confirmed')
+        self.assertEqual(button.calls,1)
+
     def test_background_delivery_gate_never_grants_foreground_or_paused_changes(self):
         config = {"paused": False, "idle_seconds_before_actions": 30, "apps": {"codex": {"process_path": "C:/Codex/ChatGPT.exe"}}}
         with patch("automation_policy.idle_seconds", return_value=0):

@@ -33,9 +33,9 @@ def thread_metadata(job, home=None):
     with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=.2)) as connection:
         connection.row_factory = sqlite3.Row
         row = connection.execute("SELECT id, COALESCE(NULLIF(name,''),title) AS name, rollout_path, archived FROM threads WHERE id=?", (job["thread_id"],)).fetchone()
-        if not row or row["archived"] or row["name"] != job["title"]:
-            raise ValueError("ID e titolo della chat configurata non corrispondono")
-        duplicates = connection.execute("SELECT count(*) FROM threads WHERE archived=0 AND COALESCE(NULLIF(name,''),title)=?", (job["title"],)).fetchone()[0]
+        if not row or row["archived"]:
+            raise ValueError("ID della chat configurata non disponibile")
+        duplicates = connection.execute("SELECT count(*) FROM threads WHERE archived=0 AND COALESCE(NULLIF(name,''),title)=?", (row['name'],)).fetchone()[0]
         if duplicates != 1:
             raise ValueError("Titolo Codex duplicato: invio nativo sospeso")
         result = dict(row)
@@ -181,6 +181,7 @@ def tick(store=None, bridge=None, now=None, metadata=thread_metadata, observe=ob
             if blocked:
                 return {"action": "waiting_for_idle", "job": job["id"], "reason": blocked}
             meta = metadata(job)
+            job={**job,'title':meta.get('name',job['title'])}
             current, status = observe(config, job)
             if status == "active" and not job.get("send_when_active"):
                 return {"action": "waiting_for_chat", "job": job["id"]}
@@ -243,6 +244,8 @@ def tick(store=None, bridge=None, now=None, metadata=thread_metadata, observe=ob
 
 if __name__ == "__main__":
     try:
+        from chat_identity import refresh_saved
+        refresh_saved(ROOT)
         result = tick()
         try:
             from sentinel_launcher import atomic_json
