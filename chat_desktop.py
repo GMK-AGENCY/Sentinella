@@ -78,6 +78,7 @@ def entries(controls, app):
                 parent = parent.GetParentControl()
         else:
             suffixes = (" Avviata da ", " Bozza", " Unito", " Cloud", " In esecuzione", " Running", " Working",
+                        " Aperta", " Aperto", " Open", " Chiusa", " Chiuso", " Closed",
                         " Risposta non letta", " Unread response", " Ha fatto una domanda")
             matches = [n for n in options if c.Name == n
                        or any(c.Name.startswith(n + suffix) for suffix in suffixes)

@@ -1,5 +1,6 @@
 import unittest
 from dataclasses import dataclass
+from unittest.mock import patch
 from chat_desktop import entries, timer_target
 from question_desktop import chat_content_available
 
@@ -16,6 +17,20 @@ def row(title, status=""):
 
 
 class InventoryTests(unittest.TestCase):
+    def test_claude_pull_request_badges_preserve_exact_title_and_project(self):
+        for suffix in (' Aperta · 8 pull request',' Open · 8 pull requests',' Chiuso · 2 pull request',
+                       ' In esecuzione Bozza · 2 pull request'):
+            controls=[Node('TextControl','project','heading'),Node('ButtonControl','project'),
+                      Node('ButtonControl','Regia'+suffix),Node('ButtonControl','Altre opzioni per Regia'),
+                      Node('ButtonControl','Regia figlia Avviata da Claude da Regia'),
+                      Node('ButtonControl','Altre opzioni per Regia figlia')]
+            with patch('chat_desktop.walk',return_value=[]):rows=entries(controls,'claude')
+            matched=timer_target(rows,{'app':'claude','title':'Regia','group':'project'})
+            self.assertEqual(len(matched),1)
+            self.assertEqual(matched[0][1].Name,'Regia'+suffix)
+            self.assertFalse(matched[0][0]['ambiguous'])
+            self.assertEqual(timer_target(rows,{'app':'claude','title':'Regia','group':'other'}),[])
+
     def test_window_title_buttons_are_not_available_chat_content(self):
         self.assertFalse(chat_content_available([Node("ButtonControl", "Riduci a icona"), Node("ButtonControl", "Ingrandisci")]))
         self.assertTrue(chat_content_available([Node("DocumentControl", "Una chat")]))
