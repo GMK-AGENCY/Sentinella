@@ -56,7 +56,7 @@ def chat_content_available(controls):
     return any(c.ControlTypeName in {"DocumentControl", "EditControl", "ListControl", "ListItemControl"} for c in controls)
 
 
-def native_controls(window):
+def native_controls(window, *, include_inputs=False):
     """One native, cached query instead of thousands of cross-process reads.
 
     The whole transcript is intentionally absent. A question's text is read
@@ -69,7 +69,13 @@ def native_controls(window):
     for property_id in (30003, 30005, 30101):
         cache.AddProperty(property_id)
     cache.TreeScope = 1
-    conditions = [client.CreatePropertyCondition(30003, kind) for kind in (auto.ControlType.ButtonControl, auto.ControlType.EditControl, auto.ControlType.DocumentControl, auto.ControlType.WindowControl, auto.ControlType.ListControl, auto.ControlType.ListItemControl)]
+    kinds = [auto.ControlType.ButtonControl, auto.ControlType.EditControl, auto.ControlType.DocumentControl,
+             auto.ControlType.WindowControl, auto.ControlType.ListControl, auto.ControlType.ListItemControl]
+    if include_inputs:
+        kinds += [auto.ControlType.CheckBoxControl, auto.ControlType.ComboBoxControl, auto.ControlType.RadioButtonControl,
+                  auto.ControlType.SliderControl, auto.ControlType.SpinnerControl, auto.ControlType.MenuItemControl,
+                  auto.ControlType.TabItemControl, auto.ControlType.TreeItemControl, auto.ControlType.DataGridControl]
+    conditions = [client.CreatePropertyCondition(30003, kind) for kind in kinds]
     conditions += [client.CreatePropertyCondition(30101, role) for role in ("heading", "status", "dialog", "alertdialog")]
     for name in ("Richiede input", "In attesa di input", "Requires input", "Needs input"):
         conditions.append(client.CreatePropertyCondition(30005, name))
@@ -126,6 +132,8 @@ def question_card(controls):
         try:
             if edit.ControlTypeName != "EditControl":
                 continue
+            if edit.IsOffscreen is True or edit.IsEnabled is False:
+                continue
             label = normalize(edit.Name)
             if not (label.startswith("rispondi") or label.startswith("oppure scrivi una risposta personalizzata") or label.startswith("reply") or label.startswith("type your answer")):
                 continue
@@ -136,7 +144,8 @@ def question_card(controls):
                 local = walk(parent, limit=100, seconds=1, max_depth=10)
                 if len(local) >= 100:
                     break
-                buttons = [c for c in local if c.ControlTypeName == "ButtonControl"]
+                buttons = [c for c in local if c.ControlTypeName == "ButtonControl"
+                           and c.IsOffscreen is not True and c.IsEnabled is not False]
                 labels = {normalize(c.Name) for c in buttons}
                 edit_nodes = {tuple(c.GetRuntimeId()) for c in walk(edit, limit=30, seconds=0.5, max_depth=6)}
                 names = [c.Name for c in local if c.ControlTypeName == "TextControl" and c.Name and tuple(c.GetRuntimeId()) not in edit_nodes]

@@ -1,6 +1,7 @@
 """Bounded native adapter for user-selected periodic chat messages."""
 import argparse
 import json
+import re
 from collections import Counter
 from approval_policy import normalize
 from automation_policy import (action_block_reason, live_block_reason, idle_seconds,
@@ -158,6 +159,61 @@ def select_chat(config, app, title, job=None, live_guard=None):
     return {"app": app, "action": "none", "current_title": current}
 
 
+def send_block_reason(controls):
+    card = question_card(controls)
+    if card:
+        return 'Domanda o dialogo aperto: domanda nella chat destinataria'
+    for control in controls:
+        if control.AriaRole not in {'dialog', 'alertdialog'}:
+            continue
+        name = control.Name[:160] or 'senza titolo'
+        try:
+            if control.IsOffscreen is True:
+                continue
+            properties = control.AriaProperties
+            # ARIA values may contain escaped semicolons. Never reinterpret
+            # an escaped value or conflicting modal declarations as nonmodal.
+            modal = [part.partition('=')[2] for part in re.split(r'(?<!\\);', properties)
+                     if part.partition('=')[0] == 'modal'] if isinstance(properties, str) else []
+            if control.AriaRole == 'dialog' and modal in ([], ['false']):
+                # Claude's Usage hover panel has role=dialog and no modal
+                # attribute. Prove its subtree is informational; only its
+                # known credit-help button is passive. Requests still block.
+                local = native_controls(control, include_inputs=True)
+                readonly = {'TextControl', 'HeaderControl', 'GroupControl', 'PaneControl',
+                            'CustomControl', 'ProgressBarControl'}
+                def passive(child):
+                    if child.ControlTypeName in readonly and child.AriaRole not in {'dialog','alertdialog'}:
+                        return True
+                    return (normalize(control.Name) in {'utilizzo','usage'} and child.ControlTypeName == 'ButtonControl'
+                            and normalize(child.Name) in {'informazioni su questo credito','about this credit','information about this credit'})
+                if (local and len(local) < 2500
+                        and all(passive(c) for c in local)):
+                    continue
+        except Exception:
+            return f'Domanda o dialogo aperto: stato non verificabile ({name})'
+        return f'Domanda o dialogo aperto: {name}'
+    return None
+
+
+def inspect_send_state(config, app):
+    """Read-only support diagnostic; never reads drafts or invokes controls."""
+    controls, current = snapshot(config, app)
+    dialogs = []
+    for control in controls:
+        if control.AriaRole in {'dialog', 'alertdialog'}:
+            try:
+                dialogs.append({'name': control.Name[:160], 'role': control.AriaRole,
+                                'offscreen': control.IsOffscreen,
+                                'aria_properties': control.AriaProperties,
+                                'controls': [{'kind': child.ControlTypeName, 'role': child.AriaRole,
+                                              'name': child.Name[:160]} for child in native_controls(control, include_inputs=True)]})
+            except Exception as exc:
+                dialogs.append({'name': control.Name[:160], 'error': type(exc).__name__})
+    return {'app': app, 'current_title': current, 'blocking_reason': send_block_reason(controls),
+            'dialogs': dialogs}
+
+
 def step(config, job, delivery, live_guard=None):
     app = job["app"]
     live_guard = live_guard or live_block_reason
@@ -180,8 +236,9 @@ def step(config, job, delivery, live_guard=None):
     buttons = [c for c in controls if c.ControlTypeName == "ButtonControl"]
     if not job.get("send_when_active") and any(normalize(b.Name) in {"interrompi", "stop", "stop response", "interrompi risposta"} for b in buttons):
         return {**result, "reason": "Chat in elaborazione: invio rinviato"}
-    if question_card(controls) or any(c.AriaRole in {"dialog", "alertdialog"} for c in controls):
-        return {**result, "reason": "Domanda o dialogo aperto: invio rinviato"}
+    blocked = send_block_reason(controls)
+    if blocked:
+        return {**result, "reason": blocked}
     labels = {"Prompt"} if app == "claude" else {"Lavora con Codex", "Ask Codex", "Message Codex"}
     edits = [c for c in controls if c.ControlTypeName == "EditControl" and c.Name in labels and c.IsEnabled]
     if len(edits) != 1:
@@ -248,6 +305,8 @@ def step(config, job, delivery, live_guard=None):
                 matches = timer_target(entries(fresh, app), job)
                 if selected != job['title'] or len(matches) != 1 or matches[0][0]['ambiguous']:
                     return False
+                if send_block_reason(fresh):
+                    return False
                 composers = [c for c in fresh if c.ControlTypeName == 'EditControl' and c.Name in labels and c.IsEnabled]
                 if len(composers) != 1:
                     return False
@@ -268,10 +327,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--app", choices=("codex", "claude"), required=True)
     parser.add_argument("--select-title")
+    parser.add_argument('--inspect-send-state', action='store_true')
     args = parser.parse_args()
     try:
         config = json.loads((ROOT / "approval-config.json").read_text(encoding="utf-8"))
-        result = select_chat(config, args.app, args.select_title) if args.select_title else inventory(config, args.app)
+        result = (inspect_send_state(config, args.app) if args.inspect_send_state else
+                  select_chat(config, args.app, args.select_title) if args.select_title else inventory(config, args.app))
         print(json.dumps(result, ensure_ascii=True), flush=True)
     except Exception as exc:
         print(json.dumps({"app": args.app, "error": str(exc)}), flush=True)
