@@ -57,8 +57,8 @@ La **Panoramica** mostra ogni messaggio con frequenza, prossima attività e ulti
 **Messaggi salvati** conserva testi riutilizzabili. Usare un testo compila l'editor, senza creare o inviare una programmazione.
 
 - La programmazione conserva ID, versione, testo, scadenza e ultimo invio in modo persistente.
-- Codex viene identificato attraverso l'ID della chat e il titolo verificato, non scegliendo una chat dal nome simile.
-- I titoli duplicati bloccano l'invio nativo. La chat deve essere disponibile nella barra laterale.
+- Codex e Claude vengono identificati tramite l'ID stabile della chat. Il nome corrente viene risolto da quell'ID: una rinomina non crea una nuova programmazione e non azzera il timer. Le programmazioni precedenti vengono associate all'ID quando l'identità è verificabile, con backup e senza cambiare versioni, bozze o scadenze.
+- La selezione nella barra laterale richiede un collegamento univoco all'ID. Se questo non è verificabile, l'invio si ferma senza scegliere una chat omonima. In Claude la chat già aperta viene verificata anche tramite l'ID nel documento nativo, distinguendola dalle pagine del browser integrato.
 - Il controllo **Invia anche mentre lavora** permette la consegna alla chat attiva tramite il suo pulsante nativo, su entrambe le applicazioni. Le altre programmazioni aspettano che la chat sia libera.
 - **Invia anche mentre uso il PC** consente gli invii nativi durante l’uso del PC, selezionando la chat esatta quando l’app destinataria è in background, senza prendere il focus. Se stai usando un’altra chat nella stessa app, aspetta per non interromperti. Durante la digitazione nel campo messaggio aspetta una breve pausa. Se spento, vale l'inattività impostata. È spento per nuove programmazioni; i messaggi già configurati conservano il comportamento precedente. Cambiare soltanto queste opzioni mantiene la scadenza esistente.
 - Una bozza dell'utente, un dialogo aperto, una pausa o un'identità non verificabile impediscono l'invio.
