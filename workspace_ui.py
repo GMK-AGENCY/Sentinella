@@ -141,6 +141,7 @@ def apply_runtime_status(app, paused):
 def build_operational_overview(app, overview, history_for_job):
     """The essential list owns all dashboard presentation and on-demand detail."""
     from agenda_view import AgendaView
+    from operations_view import AutomationOverview
     def edit(job_id):
         if app.navigate_to(app.messages_panel):app.messages_panel.edit_job_id(job_id)
     def toggle(job_id):
@@ -148,8 +149,11 @@ def build_operational_overview(app, overview, history_for_job):
         update_insights(app,load_config())
     def new():
         if app.navigate_to(app.messages_panel):app.messages_panel.new()
+    overview.columnconfigure(0,weight=1);overview.rowconfigure(1,weight=1)
+    app.dashboard_automations=AutomationOverview(overview,lambda:app.navigate_to(app.settings_panel))
+    app.dashboard_automations.grid(row=0,column=0,sticky='ew',pady=(0,8))
     app.dashboard_agenda=AgendaView(overview,edit,toggle,history_for_job,new)
-    app.dashboard_agenda.pack(fill='both',expand=True)
+    app.dashboard_agenda.grid(row=1,column=0,sticky='nsew')
 
 
 def history_event_label(row):
@@ -343,7 +347,7 @@ def build_workspace(app):
     app.history_panel = HistoryPanel(app.notebook)
     notifications = ttk.Frame(app.notebook, padding=20)
     settings = app.settings_panel = SettingsPanel(app.notebook, app.refresh_dashboard, lambda: os.startfile(str(ROOT / 'logs')), app.restart_reader)
-    pages = [(overview, 'Panoramica', 'Le tue programmazioni, a colpo d’occhio.'),
+    pages = [(overview, 'Panoramica', 'Controlli, automazioni e prossimi invii.'),
              (app.messages_panel, 'Programmazioni', 'Destinatari, frequenze e comportamento degli invii'),
              (app.library_panel, 'Messaggi salvati', 'Organizza i messaggi in raccolte e riutilizzali nelle programmazioni.'),
              (app.history_panel, 'Registro invii', 'Cronologia, motivi dei rinvii e prove di consegna'),
@@ -445,10 +449,12 @@ def update_insights(app, config):
     finally:
         store.db.close()
     health={}
-    for key,filename in (('gui','gui-heartbeat.json'),('reader','health.json'),('supervisor','supervisor-health.json')):
+    for key,filename in (('gui','gui-heartbeat.json'),('reader','health.json'),('supervisor','supervisor-health.json'),('recovery','file-recovery-status.json')):
         try:health[key]=json.loads((ROOT/'logs'/filename).read_text(encoding='utf-8'))
         except (OSError,ValueError):health[key]={}
+    health['reader']['requested']=getattr(app,'monitoring',True)
     model=snapshot(config,jobs,states,history,health,time.time())
+    app.dashboard_automations.render(model['automations'])
     app.dashboard_agenda.render(model)
 
 

@@ -1,5 +1,11 @@
 # Modifiche
 
+## 0.2.12
+
+- Panoramica con quattro card per notifiche, controllo chat, risposte automatiche e recupero delle scritture: opzioni abilitate, pausa, attesa di inattività e controlli non aggiornati restano distinti.
+- Card su quattro o due colonne secondo lo spazio disponibile, con ultima attività, frequenza e collegamento alle opzioni; agenda e comandi restano accessibili anche con dieci programmazioni.
+- Icona di Sentinella condivisa da finestra, barra delle applicazioni, eseguibile, installer e collegamenti; l'avvio dai sorgenti non usa più l'icona di Python. Collegamento desktop opzionale nell'installer.
+
 ## 0.2.11
 
 - I pannelli informativi, come Utilizzo di Claude, e i dialoghi nascosti non bloccano più gli invii programmati. Il controllo verifica visibilità, modalità e controlli interni: richieste reali e stati sconosciuti restano protetti.

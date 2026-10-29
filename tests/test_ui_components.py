@@ -13,6 +13,13 @@ from ui_components import AutoScrollbar, PlaceholderEntry, TreeRowActions, photo
 
 
 class ProcessIdentityTests(unittest.TestCase):
+    def test_shortcuts_use_brand_asset_in_source_and_branded_executable_in_bundle(self):
+        with patch.object(app_icon.sys,'frozen',False,create=True):
+            self.assertEqual(app_icon.shortcut_icon(),str(app_icon.icon_paths()[0])+',0')
+        executable=str(Path('Sentinella.exe').resolve())
+        with patch.object(app_icon.sys,'frozen',True,create=True),patch.object(app_icon.sys,'executable',executable):
+            self.assertEqual(app_icon.shortcut_icon(),executable+',0')
+
     def test_stable_windows_process_identity_before_any_tk_in_source_and_frozen(self):
         for frozen in (False,True):
             identify=Mock(return_value=0)

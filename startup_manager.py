@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from automation_policy import ROOT, load_config
 from runtime_paths import frozen
+from app_icon import shortcut_icon
 import sys
 
 
@@ -63,7 +64,7 @@ def set_startup(enabled, path=None, client=None):
         shortcut.TargetPath, shortcut.Arguments = startup_target()
         shortcut.WorkingDirectory = str(ROOT)
         shortcut.Description = "Sentinella: avvio con Windows e ripristino dopo crash"
-        shortcut.IconLocation = str(shortcut.TargetPath) + ",0"
+        shortcut.IconLocation = shortcut_icon()
         shortcut.Save()
     elif path.exists():
         client = client or shell()

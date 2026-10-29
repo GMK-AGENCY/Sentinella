@@ -63,7 +63,7 @@ class AgendaView(tk.Frame):
         self.canvas.bind('<MouseWheel>',self.wheel)
         self.empty=tk.Label(self.content,text='Nessun messaggio programmato.\nCrea una programmazione per iniziare.',
                             bg=BG,fg=MUTED,font=('Segoe UI',11),padx=30,pady=45,justify='left')
-        self.footer=tk.Frame(self,bg=BG);self.footer.pack(fill='x',pady=(12,0))
+        self.footer=tk.Frame(self,bg=BG);self.footer.pack(side='bottom',fill='x',pady=(12,0),before=self.viewport)
         self.extent=tk.StringVar()
         tk.Label(self.footer,textvariable=self.extent,bg=BG,fg=MUTED,font=('Segoe UI',10)).pack(side='left')
         ttk.Button(self.footer,text='Diagnostica ↗',command=self.show_diagnostics).pack(side='right')
@@ -80,8 +80,11 @@ class AgendaView(tk.Frame):
     def layout_row(self,row):
         available=max(420,self.canvas.winfo_width()-32-235)
         widths=[int(available*ratio) for ratio in (.30,.28,.18,.24)]
+        widths[2]=max(126,widths[2])
+        widths[3]=max(70,available-sum(widths[:3]))
         for column,width in enumerate(widths,2):row['inner'].columnconfigure(column,weight=0,minsize=width)
-        row['badge'].configure(wraplength=max(65,widths[2]-18))
+        row['badge'].configure(wraplength=0)
+        self.fit_text(row['badge'],row['record']['status'],widths[2]-28)
         self.fit_title(row, max(90, widths[0]-10))
         self.fit_text(row['countdown'],row['record']['countdown'] if row['record']['status']!='In pausa' else '—',max(70,widths[1]-10))
         self.fit_text(row['receipt'],'Ricevuto' if row['record'].get('last_confirmed_at') is not None else 'Ricevuta non disponibile',max(70,widths[3]-10))
