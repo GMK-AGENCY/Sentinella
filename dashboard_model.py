@@ -48,7 +48,7 @@ def _component(key, data, now, limit):
 
 def automation_cards(config, health, now):
     """Configured features and observed activity stay distinct; no native I/O."""
-    from automation_policy import app_enabled
+    from automation_policy import app_enabled, command_approval_enabled
     from polling_policy import interval
     health = health or {}
     reader, supervisor = health.get('reader', {}), health.get('supervisor', {})
@@ -60,7 +60,7 @@ def automation_cards(config, health, now):
     present = bool(supervisor.get('blocked_reason','').startswith('PC in uso')
                    and (_number(config.get('idle_seconds_before_actions')) or 0)>0)
     apps = config.get('apps', {})
-    selected = [app for app in apps if app_enabled(config,app,'questions') or app_enabled(config,app,'approvals')]
+    selected = [app for app in apps if app_enabled(config,app,'questions') or app_enabled(config,app,'approvals') or command_approval_enabled(config,app)]
     questions = [app for app in apps if app_enabled(config,app,'questions') and apps[app].get('process_path')]
     approvals = [app for app in apps if app_enabled(config,app,'approvals') and apps[app].get('process_path')]
     def clock(value):
@@ -95,8 +95,13 @@ def automation_cards(config, health, now):
                     detail='Attende l’apertura di '+', '.join(app.title() for app in sorted(waiting))+'.')
     elif not fresh_checks:
         chat.update(badge='Da verificare' if checked else 'In avvio',tone='warning',detail='Il prossimo controllo deve ancora essere verificato.')
+    else:
+        manual = [reason for app in selected for reason in supervisor.get('last_scan_results',{}).get(app,{}).get('manual_approvals',[]) if reason]
+        if manual:
+            chat.update(badge='Consenso manuale',tone='warning',detail=manual[0],meta='Gestisci la richiesta nella chat o verifica le opzioni in Impostazioni')
     chat['hint']=('Rilevamento domande: '+('attivo' if questions else 'disattivo')+
                   '\nConsensi ai file: '+('attivi' if approvals and config.get('enabled') else 'disattivi')+
+                  '\nApprovazione comandi: '+('attiva' if any(command_approval_enabled(config,a) for a in apps) else 'disattivata')+
                   '\nApp: '+(', '.join(app.title() for app in selected) or 'nessuna configurata'))
     idle = (_number(config.get('idle_seconds_before_actions')) or 0)/60
     inactivity = f'{idle:g} min senza mouse o tastiera' if idle else 'Intervento senza attesa di inattività'

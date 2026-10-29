@@ -1,2 +1,2 @@
 """Public application version."""
-VERSION = "0.2.14"
+VERSION = "0.2.15"

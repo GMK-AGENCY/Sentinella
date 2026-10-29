@@ -6,7 +6,8 @@ from pathlib import Path
 def default_config():
     from message_templates import AWAY_REPLY
     return {"enabled": False, "away_mode": False, "away_reply": AWAY_REPLY,
-            "prefer_always": False, "allowed_project_roots": [], "paused": True,
+            "prefer_always": False, "automatic_command_approval": False,
+            "allowed_project_roots": [], "paused": True,
             "idle_seconds_before_actions": 30, "notification_poll_seconds": 30,
             "chat_scan_seconds": 900, "start_with_windows": False, "automatic_file_recovery": False,
             "apps": {app: {"enabled": False, "process_path": "", "questions_enabled": False,

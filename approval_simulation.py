@@ -14,7 +14,7 @@ from runtime_paths import data_root
 ROOT = data_root()
 
 
-def run(once):
+def run(once, command=False):
     user32, kernel32 = ct.windll.user32, ct.windll.kernel32
     callback = ct.WINFUNCTYPE(ct.c_ssize_t, wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM)
     class WNDCLASS(ct.Structure):
@@ -25,7 +25,7 @@ def run(once):
     user32.CreateWindowExW.argtypes = [wt.DWORD, wt.LPCWSTR, wt.LPCWSTR, wt.DWORD, ct.c_int, ct.c_int, ct.c_int, ct.c_int, wt.HWND, wt.HMENU, wt.HINSTANCE, ct.c_void_p]
     kernel32.GetModuleHandleW.restype = wt.HMODULE
     kernel32.GetModuleHandleW.argtypes = [wt.LPCWSTR]
-    mode = "una-volta" if once else "sempre"
+    mode = "comando" if command else "una-volta" if once else "sempre"
     marker = ROOT / "test-project" / f"codex-consenso-SIMULATO-{mode}.txt"
     @callback
     def proc(hwnd, message, wparam, lparam):
@@ -47,8 +47,9 @@ def run(once):
     name = f"SentinellaConsentFixture{os.getpid()}"
     wc = WNDCLASS(0, proc, 0, 0, instance, None, None, wt.HBRUSH(6), None, name)
     user32.RegisterClassW(ct.byref(wc))
-    hwnd = user32.CreateWindowExW(0, name, "Sentinella - SIMULAZIONE consenso Codex", 0x10CF0000, 140, 140, 850, 310, None, None, instance, None)
-    text = f"SIMULAZIONE ESPLICITA. Non è una richiesta di Codex Desktop.\nwrite file (solo questa sessione)\n{marker}"
+    title = "Richiesta di autorizzazione: eseguire questo comando" if command else "Sentinella - SIMULAZIONE consenso Codex"
+    hwnd = user32.CreateWindowExW(0, name, title, 0x10CF0000, 140, 140, 850, 310, None, None, instance, None)
+    text = f"SIMULAZIONE ESPLICITA SENTINELLA. Non è una richiesta di Codex o Claude.\n{'Test innocuo di consenso: il pulsante crea soltanto un file marcatore.' if command else 'write file (solo questa sessione)'}\n{marker}"
     user32.CreateWindowExW(0, "STATIC", text, 0x50000000, 20, 25, 790, 130, hwnd, None, instance, None)
     buttons = [(102, "Consenti una volta"), (103, "Nega")]
     if not once:
@@ -57,6 +58,8 @@ def run(once):
         user32.CreateWindowExW(0, "BUTTON", label, 0x50010000, 20 + index * 235, 190, 220, 40, hwnd, wt.HMENU(control_id), instance, None)
     config = json.loads((ROOT / "approval-config.json").read_text(encoding="utf-8"))
     config.update(enabled=True, allowed_project_roots=[str(ROOT / "test-project")])
+    if command:
+        config.update(automatic_command_approval=True, enabled=False)
     config["apps"]["codex"] = {"enabled": True, "process_path": psutil.Process().exe()}
     config["simulation_window_handle"] = int(hwnd)
     (ROOT / "logs" / "approval-simulation-config.json").write_text(json.dumps(config), encoding="utf-8")
@@ -69,4 +72,6 @@ def run(once):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true")
-    run(parser.parse_args().once)
+    parser.add_argument("--command", action="store_true", help="Harmless command-consent fixture: creates only a fixed marker")
+    args = parser.parse_args()
+    run(args.once, args.command)

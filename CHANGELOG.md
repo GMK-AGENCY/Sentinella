@@ -1,5 +1,12 @@
 # Modifiche
 
+## 0.2.15
+
+- Nuova opzione **Approva automaticamente i comandi** in Impostazioni, separata dai consensi sui file e disattivata per default. Usa esclusivamente il consenso singolo; l'interfaccia avverte che può autorizzare cancellazioni e operazioni irreversibili anche fuori dalle cartelle delegate.
+- Verifica del documento nativo, nuova lettura della richiesta e dell'opzione prima del clic, rispetto di pausa e inattività. L'attivazione rende subito dovuto il controllo, senza attendere il successivo intervallo completo.
+- Le richieste di consenso non vengono confuse con domande a cui rispondere con il messaggio di assenza. Il controllo chat espone il motivo quando serve un consenso manuale.
+- Collaudo Windows facoltativo su una finestra di prova innocua: consenso singolo, un solo clic registrato e prosecuzione verificata tramite file marcatore. Non esegue comandi delle chat reali.
+
 ## 0.2.14
 
 - Destinatari riconosciuti tramite ID stabile per Codex e Claude. I nomi aggiornati vengono risolti dall'ID; un ID assente, archiviato o ambiguo non viene sostituito con un'altra chat omonima.

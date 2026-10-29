@@ -164,6 +164,10 @@ def plain_claude_candidate(controls, title, allowed_titles, away_reply=""):
     """Only the latest, unanswered assistant message in the selected chat."""
     if not title or (allowed_titles and title not in allowed_titles):
         return False
+    from approval_policy import DENY, ONCE, ALWAYS, button_key
+    labels = {button_key(c.Name) for c in controls if c.ControlTypeName == "ButtonControl" and not getattr(c, "IsOffscreen", False)}
+    if labels & DENY and labels & (ONCE | ALWAYS):
+        return False
     if any(c.ControlTypeName == "ButtonControl" and normalize(c.Name) in {"interrompi", "stop", "stop response", "stop generating"} for c in controls):
         return False
     authors = [c.Name for c in controls if c.AriaRole == "heading" and c.Name.startswith(("Claude ha risposto:", "Hai detto:", "Claude said:", "You said:"))]
@@ -207,6 +211,11 @@ def inspect(config, app_name, target_title=None, act=False):
         edits = [c for c in controls if c.ControlTypeName == "EditControl"]
         result["documents"] = [c.Name[:150] for c in controls if c.ControlTypeName == "DocumentControl"]
         result["current_title"] = next((name.removesuffix(" - Claude Code") for name in reversed(result["documents"]) if name), "")
+        if app_name == "claude":
+            from chat_desktop import document_sessions
+            native = document_sessions(controls)
+            if native:
+                result["current_title"] = native[-1][0].Name.removesuffix(" - Claude Code")
         result["headings"] = [c.Name[:200] for c in controls if c.AriaRole == "heading" or c.ControlTypeName == "HeaderControl"]
         result["edit_labels"] = [c.Name[:150] for c in edits]
         result["question_buttons"] = [c.Name for c in buttons if normalize(c.Name) in {"rispondi alla domanda", "answer question", "answer the question"}]

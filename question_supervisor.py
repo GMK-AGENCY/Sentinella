@@ -5,7 +5,7 @@ import subprocess
 import time
 from datetime import datetime
 from collections import deque
-from automation_policy import app_enabled, target_titles, title_allowed, action_block_reason
+from automation_policy import app_enabled, target_titles, title_allowed, action_block_reason, approval_actions_enabled
 from polling_policy import ScanClock, interval
 from message_engine import load_jobs
 from bounded_process import run_bounded
@@ -96,7 +96,7 @@ def process_target(config, app, title):
         result = run_adapter(app, title, act=True)
         if result.get("action", "none") != "none":
             return result
-    if config.get("enabled") and app_enabled(config, app, "approvals") and title_allowed(config, app, title, "approvals"):
+    if approval_actions_enabled(config, app) and title_allowed(config, app, title, "approvals"):
         # A notification can refer to an inline file card in another chat.
         selected = bounded_worker("chat_desktop.py", "--app", app, "--select-title", title)
         if selected.get("action") == "selected_chat":
@@ -104,8 +104,9 @@ def process_target(config, app, title):
         if selected.get("current_title") == title:
             approval = bounded_worker("approval_desktop.py", "--app", app)
             if approval.get("invoked"):
-                log({"type": "file_approval", "target": title, **approval})
-                return {**approval, "action": "approved_file"}
+                kind = approval.get("request_type", "file")
+                log({"type": kind + "_approval", "target": title, **approval})
+                return {**approval, "action": "approved_" + kind}
             error = approval.get("error", "").casefold()
             if any(message in error for message in ("pulsante coperto o ricreato", "la richiesta è cambiata", "clic rinviato")):
                 # Activation and Electron layout can settle after the first
@@ -132,10 +133,10 @@ def scheduled_scan(config, app, scans, now, inspect_only=False):
         log({"type": "waiting_for_app", "app": app, "retry_seconds": 30, "error": result.get("error")})
         return {"question": result, "approval": None, "ready": False}
     approval = None
-    if config.get("enabled") and app_enabled(config, app, "approvals"):
+    if approval_actions_enabled(config, app):
         approval = bounded_worker("approval_desktop.py", "--app", app, *(["--inspect-only"] if inspect_only else []))
         if approval.get("invoked") or approval.get("error"):
-            log({"type": "file_approval", **approval})
+            log({"type": approval.get("request_type", "file") + "_approval", **approval})
         if approval.get("error") or approval.get("available") is False or approval.get("windows") == 0:
             scans.defer(app, now, 30)
             log({"type": "waiting_for_app", "app": app, "stage": "approvals", "retry_seconds": 30,
@@ -180,12 +181,13 @@ def run():
     waiting_apps = set()
     last_scan_results = {}
     last_target_result = None
+    last_command_option = None
 
     def enqueue(config, app, title):
         key = (app, title)
         # A title is a lookup key, never a command from notification contents.
         questions = config.get("away_mode") and app_enabled(config, app, "questions") and title_allowed(config, app, title, "questions")
-        approvals = config.get("enabled") and app_enabled(config, app, "approvals") and title_allowed(config, app, title, "approvals")
+        approvals = approval_actions_enabled(config, app) and title_allowed(config, app, title, "approvals")
         if title and key not in queued and (questions or approvals):
             jobs.append((app, title, 0))
             queued.add(key)
@@ -200,6 +202,7 @@ def run():
         last_scan_results[app] = {"ready": scan["ready"], "question_windows": result.get("windows"),
                                   "question_error": result.get("error"),
                                   "approval_error": (scan.get("approval") or {}).get("error"),
+                                  "manual_approvals": [d.get("reason") for d in (scan.get("approval") or {}).get("dialogs", []) if d.get("manual_required")],
                                   "reason": result.get("reason") or (scan.get("approval") or {}).get("reason")}
         state.update(last_result=result, waiting_for_apps=sorted(waiting_apps), last_scan_results=last_scan_results)
         state["next_chat_scan_in_seconds"][app] = round(scans.remaining(app, time.monotonic(), interval(config, "chats")))
@@ -208,7 +211,11 @@ def run():
 
     while True:
         config = json.loads((ROOT / "approval-config.json").read_text(encoding="utf-8"))
-        enabled_apps = [app for app in config["apps"] if app_enabled(config, app, "questions") or app_enabled(config, app, "approvals")]
+        command_option = bool(config.get("automatic_command_approval", False))
+        if command_option != last_command_option:
+            scans = ScanClock()
+            last_command_option = command_option
+        enabled_apps = [app for app in config["apps"] if app_enabled(config, app, "questions") or app_enabled(config, app, "approvals") or approval_actions_enabled(config, app)]
         active = config.get("away_mode", False)
         event_path = LOGS / "events.jsonl"
         if event_path.exists():
@@ -302,13 +309,13 @@ def run():
             action = result.get("action", "none")
             if action != "none" or result.get("error") or result.get("reason"):
                 log({"target": title, **result})
-            if action in ("sent_reply", "approved_file"):
+            if action in ("sent_reply", "approved_file", "approved_command"):
                 if action == "sent_reply":
                     replies += 1
                     state["replies_this_run"] = replies
                 queued.discard(key)
                 cooldown[key] = time.monotonic() + 30
-                if action == "approved_file":
+                if action in ("approved_file", "approved_command"):
                     scans.defer(app, time.monotonic(), 2)
             elif action in ("selected_chat", "opened_question", "drafted_reply", "waiting_file_approval") and attempts < 12:
                 jobs.appendleft((app, title, attempts + 1))

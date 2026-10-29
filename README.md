@@ -16,6 +16,7 @@ Sentinella è un'app gratuita e open source per Windows, con interfaccia in ital
 | Invii durante il lavoro | Consenti, per ogni programmazione, l'invio mentre la chat lavora o mentre usi il PC. |
 | Risposte durante l'assenza | Conserva le domande per il tuo ritorno e invita la chat a continuare le attività indipendenti già autorizzate. |
 | Consensi nelle cartelle autorizzate | Gestisci richieste riconoscibili di lettura e scrittura solo nei percorsi scelti. |
+| Approvazione dei comandi, facoltativa | Se la attivi esplicitamente, usa il consenso singolo sulle richieste di esecuzione riconosciute. È separata dai consensi file e può autorizzare operazioni irreversibili. |
 | Raccolta di messaggi | Organizza testi riutilizzabili senza riscriverli a ogni programmazione. |
 | Agenda e registro invii | Vedi cosa è previsto, perché un invio è in attesa e quali consegne hanno una ricevuta. |
 
@@ -27,7 +28,7 @@ Il timer gira nel programma: **non richiede una chat di controllo o automazioni 
 
 Requisiti: Windows 11 a 64 bit e le app desktop che si desidera controllare. **La versione Windows installabile include Python e tutte le dipendenze: non devi installare Python.** Non serve una chiave API OpenAI.
 
-1. Scarica `Sentinella-0.2.14-Windows-x64-Setup.exe` dalla release.
+1. Scarica `Sentinella-0.2.15-Windows-x64-Setup.exe` dalla release.
 2. Esegui l'installer per il tuo utente: non richiede diritti di amministratore.
 3. Avvia **Sentinella** dal menu Start. Il primo avvio è in pausa.
 4. In **Impostazioni**, premi **Rileva applicazioni**, scegli le funzioni e le cartelle già autorizzate, poi togli la pausa quando sei pronto.

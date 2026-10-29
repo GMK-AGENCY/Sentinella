@@ -27,6 +27,17 @@ def target_titles(config, app, kind):
     return data.get(key, data.get("target_titles", []))
 
 
+def command_approval_enabled(config, app):
+    """A separate, explicit opt-in; it never expands delegated file access."""
+    return bool(config.get("automatic_command_approval", False)
+                and config.get("apps", {}).get(app, {}).get("process_path"))
+
+
+def approval_actions_enabled(config, app):
+    return bool((config.get("enabled") and app_enabled(config, app, "approvals"))
+                or command_approval_enabled(config, app))
+
+
 def title_allowed(config, app, title, kind):
     titles = target_titles(config, app, kind)
     return not titles or title in titles

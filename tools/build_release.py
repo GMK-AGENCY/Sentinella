@@ -21,7 +21,7 @@ def public_files(root=ROOT):
              "requirements.txt", ".gitignore", ".gitattributes", "Avvia Sentinella.cmd", "Installa Sentinella.cmd",
              ".github/workflows/test.yml", ".github/ISSUE_TEMPLATE/bug_report.yml", ".github/ISSUE_TEMPLATE/feature_request.yml", "tools/build_release.py", "tools/build_windows.py", "tools/check_python.py", "requirements-build.txt", "installer/Sentinella.iss", "assets/sentinella.ico", "assets/sentinella.png"]
     names += [p.relative_to(root).as_posix() for p in sorted((root / "tests").glob("test_*.py"))]
-    names += ["tests/native_controls_fixture.py", "tests/verify_native_controls.py", "tests/smoke_clean_install.py", "tools/prepare_github.py", "assets/licenses/PyWinRT-LICENSE", "assets/licenses/Tcl-LICENSE", "assets/licenses/SOURCES.md"]
+    names += ["tests/native_controls_fixture.py", "tests/verify_native_controls.py", "tests/verify_command_fixture.py", "tests/smoke_clean_install.py", "tools/prepare_github.py", "assets/licenses/PyWinRT-LICENSE", "assets/licenses/Tcl-LICENSE", "assets/licenses/SOURCES.md"]
     for name in names:
         path = root / name
         if not path.is_file() or path.is_symlink():

@@ -120,6 +120,22 @@ class SettingsPanel(ttk.Frame):
             self.feedback.set(str(exc))
             return False
 
+    def save_commands(self):
+        """Save only this opt-in, without committing pending timing edits."""
+        config = load_config()
+        previous = bool(config.get('automatic_command_approval', False))
+        try:
+            config['automatic_command_approval'] = bool(self.commands.get())
+            from sentinel_launcher import atomic_json
+            atomic_json(ROOT / 'approval-config.json', config)
+            self.feedback.set('Approvazione dei comandi ' + ('attivata. Restano valide pausa e inattività.' if self.commands.get() else 'disattivata.'))
+            self.on_saved(config)
+            return True
+        except (OSError, ValueError) as exc:
+            self.commands.set(previous)
+            self.feedback.set(str(exc))
+            return False
+
     def save_apps(self):
         try:
             config = save_shared_controls(self.questions.get(), self.approvals.get(), self.recovery.get())

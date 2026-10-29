@@ -1,7 +1,7 @@
 """Native accessibility adapter for the user's Sentinella application.
 
-Inspection is the default. Invocation requires both an enabled configuration and
-a recognizable native permission card, a file operation and delegated paths.
+Invocation requires an enabled configuration and a recognizable native card.
+File consents require delegated paths; command consents require a separate opt-in.
 No screen-coordinate clicks, shell execution, CDP or global permission changes.
 """
 import argparse
@@ -13,15 +13,44 @@ import time
 
 from approval_policy import ALWAYS, ONCE, DENY, normalize, is_inside, pick_button, button_key, file_change_decision
 from question_desktop import walk, native_controls, desktop_is_unlocked, chat_content_available
-from automation_policy import app_enabled, target_titles, action_block_reason, live_block_reason
+from automation_policy import (app_enabled, target_titles, action_block_reason, live_block_reason,
+                               command_approval_enabled, approval_actions_enabled, load_config)
 from desktop_identity import app_window_handles
 
 from runtime_paths import data_root
 ROOT = data_root()
 
 
+def record_enabled(config, app, record):
+    if record.get("summary", {}).get("request_type") == "command":
+        return command_approval_enabled(config, app)
+    return bool(config.get("enabled") and app_enabled(config, app, "approvals"))
+
+
+def command_surface_verified(control, app, simulation=False):
+    """Do not approve a web page embedded in an assistant's browser preview."""
+    if simulation:
+        return True
+    from chat_desktop import document_sessions
+    node = control
+    for _ in range(24):
+        if node is None:
+            return False
+        if node.ControlTypeName == "DocumentControl":
+            if app == "claude":
+                return bool(document_sessions([node]))
+            # Codex consent forms must belong to its application document,
+            # not to a nested web document.
+            try:
+                return node.GetValuePattern().Value == "app://-/index.html"
+            except Exception:
+                return False
+        node = node.GetParentControl()
+    return False
+
+
 def invoke_record(record, app):
-    if live_block_reason():
+    if live_block_reason() or not record_enabled(load_config(), app, record):
         return False
     from datetime import datetime
     path = ROOT / "logs" / "consensi.jsonl"
@@ -51,7 +80,12 @@ def invoke_record(record, app):
     if psutil.Process(auto.GetForegroundControl().ProcessId).exe().casefold() != expected_exe:
         fg = auto.GetForegroundControl()
         raise RuntimeError(f"Clic rinviato: finestra={top.Name}, attesa={expected_exe}, primo_piano={psutil.Process(fg.ProcessId).exe()}, titolo={fg.Name[:100]}")
-    refreshed = inspect_dialog(record["control"], record["roots"], time.monotonic() + 2, record.get("prefer_always", False))
+    current = load_config()
+    if not record_enabled(current, app, record):
+        return False
+    if record["summary"].get("request_type") == "command" and not command_surface_verified(record["control"], app, current.get("simulation_window_handle")):
+        return False
+    refreshed = inspect_dialog(record["control"], record["roots"], time.monotonic() + 2, record.get("prefer_always", False), command_approval_enabled(current, app))
     if refreshed.get("fingerprint") != key:
         raise RuntimeError("La richiesta è cambiata dopo l'attivazione: clic annullato")
     button = refreshed["button"]
@@ -68,7 +102,7 @@ def invoke_record(record, app):
             f"rilevato={getattr(hit, 'Name', None)!r}, tipo={getattr(hit, 'ControlTypeName', None)}, pid={getattr(hit, 'ProcessId', None)}")
     with path.open("a", encoding="utf-8") as out:
         out.write(json.dumps({**event, "status": "attempt"}, ensure_ascii=False) + "\n")
-    if live_block_reason():
+    if live_block_reason() or not record_enabled(load_config(), app, record):
         return False
     button.Click(simulateMove=False, waitTime=0)
     with path.open("a", encoding="utf-8") as out:
@@ -99,7 +133,15 @@ def scan(config, app_name, inspect_only=False):
             windows.append(auto.ControlFromHandle(handle))
         except Exception:
             continue
-    result = {"app": app_name, "windows": len(windows), "dialogs": [], "invoked": False, "enabled": config.get("enabled", False)}
+    commands = command_approval_enabled(config, app_name)
+    def inspect_card(control):
+        record = inspect_dialog(control, roots, deadline, config.get("prefer_always", False), commands)
+        if record["summary"].get("request_type") == "command" and record.get("button"):
+            if not command_surface_verified(control, app_name, config.get("simulation_window_handle")):
+                record.pop("button", None)
+                record["summary"].update(eligible=False, manual_required=True, reason="Richiesta non associata al documento nativo della chat")
+        return record
+    result = {"app": app_name, "windows": len(windows), "dialogs": [], "invoked": False, "enabled": approval_actions_enabled(config, app_name)}
     for window in windows:
         # Claude renders real tool approvals inline, without a dialog role.
         # Anchor on actual consent controls, then inspect their smallest card.
@@ -109,6 +151,9 @@ def scan(config, app_name, inspect_only=False):
         allowed_titles = target_titles(config, app_name, "approvals")
         if allowed_titles:
             titles = [c.Name.removesuffix(" - Claude Code") for c in controls if c.ControlTypeName == "DocumentControl" and c.Name]
+            if app_name == "claude":
+                from chat_desktop import document_sessions
+                titles = [c.Name.removesuffix(" - Claude Code") for c, _ in document_sessions(controls)]
             if not titles or titles[-1] not in allowed_titles:
                 result["reason"] = "Chat fuori dalla delega attiva"
                 continue
@@ -127,25 +172,26 @@ def scan(config, app_name, inspect_only=False):
                 seen.add(key)
                 title = parent.Name.casefold()
                 inline_permission = app_name == "claude" and title.startswith("richiesta di autorizzazione:")
-                codex_card = app_name == "codex" and codex_permission_resources(walk(parent, limit=150, seconds=min(.3, max(0, deadline-time.monotonic())), max_depth=10)) is not None
+                parent_controls = walk(parent, limit=150, seconds=min(.3, max(0, deadline-time.monotonic())), max_depth=10) if app_name == "codex" else []
+                codex_card = app_name == "codex" and (codex_permission_resources(parent_controls) is not None or command_request(parent, parent_controls))
                 native_dialog = parent.AriaRole.casefold() in {"dialog", "alertdialog"}
                 if not (inline_permission or codex_card or native_dialog or config.get("simulation_window_handle")):
                     parent = parent.GetParentControl()
                     continue
-                record = inspect_dialog(parent, roots, deadline, config.get("prefer_always", False))
-                if codex_card and not record.get("button") and not inspect_only and config.get("enabled") and app_enabled(config, app_name, "approvals"):
+                record = inspect_card(parent)
+                if codex_card and record["summary"].get("request_type") != "command" and not record.get("button") and not inspect_only and config.get("enabled") and app_enabled(config, app_name, "approvals"):
                     reveal_codex_resource(parent, deadline)
-                    record = inspect_dialog(parent, roots, deadline, config.get("prefer_always", False))
+                    record = inspect_card(parent)
                 if record["summary"].get("buttons"):
                     result["dialogs"].append(record["summary"])
                 if record.get("button"):
-                    if not inspect_only and config.get("enabled") and app_enabled(config, app_name, "approvals"):
-                        check = inspect_dialog(parent, roots, deadline, config.get("prefer_always", False))
+                    if not inspect_only and record_enabled(config, app_name, record):
+                        check = inspect_card(parent)
                         if check.get("fingerprint") == record.get("fingerprint") and check.get("button") is not None:
                             target = check["button"]
                             label = target.Name
                             clicked = invoke_record(check, app_name)
-                            result.update(invoked=clicked, button=label, fingerprint=record["fingerprint"])
+                            result.update(invoked=clicked, button=label, fingerprint=record["fingerprint"], request_type=record["summary"].get("request_type", "file"))
                     return result
                 parent = parent.GetParentControl()
         for control in controls:
@@ -157,12 +203,12 @@ def scan(config, app_name, inspect_only=False):
                 kind = control.ControlTypeName
                 is_dialog = role in ("dialog", "alertdialog") or (config.get("simulation_window_handle") and kind == "WindowControl")
                 if is_dialog and not control.IsOffscreen:
-                    record = inspect_dialog(control, roots, deadline, config.get("prefer_always", False))
+                    record = inspect_card(control)
                     result["dialogs"].append(record["summary"])
                     candidate = record.get("button")
-                    if candidate and not inspect_only and config.get("enabled") and app_enabled(config, app_name, "approvals"):
+                    if candidate and not inspect_only and record_enabled(config, app_name, record):
                         # Freshly verify the same native dialog before invoking its control.
-                        check = inspect_dialog(control, roots, deadline, config.get("prefer_always", False))
+                        check = inspect_card(control)
                         if check.get("fingerprint") != record.get("fingerprint"):
                             result["reason"] = "La richiesta è cambiata prima del consenso"
                             return result
@@ -170,7 +216,7 @@ def scan(config, app_name, inspect_only=False):
                         if target.IsEnabled and not target.IsOffscreen:
                             label = target.Name
                             clicked = invoke_record(check, app_name)
-                            result.update(invoked=clicked, button=label, fingerprint=record["fingerprint"])
+                            result.update(invoked=clicked, button=label, fingerprint=record["fingerprint"], request_type=record["summary"].get("request_type", "file"))
                             return result
             except Exception as exc:
                 result["last_error"] = f"{type(exc).__name__}: {exc}"
@@ -286,7 +332,18 @@ def reveal_codex_resource(dialog, deadline):
     return codex_resource_path(target) is not None
 
 
-def inspect_dialog(dialog, roots, deadline, prefer_always=False):
+def command_request(dialog, controls):
+    """Recognize the application's permission chrome, never a quoted command."""
+    title = normalize(dialog.Name)
+    if title in {"richiesta di autorizzazione: eseguire questo comando", "permission request: run this command"}:
+        return True
+    names = [normalize(c.Name) for c in controls if c.ControlTypeName == "TextControl" and c.Name.strip()]
+    return (getattr(dialog, "AriaRole", "").casefold() in {"form", "dialog", "alertdialog"}
+            and len(names) > 1 and names[0] in {"autorizzazioni", "permissions"}
+            and names[1] in {"consentire a chatgpt di eseguire questo comando?", "allow chatgpt to run this command?"})
+
+
+def inspect_dialog(dialog, roots, deadline, prefer_always=False, allow_commands=False):
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         return {"summary": {"eligible": False, "reason": "Timeout lettura dialogo"}}
@@ -299,6 +356,26 @@ def inspect_dialog(dialog, roots, deadline, prefer_always=False):
     # Do not confuse an assistant's ordinary question with a native permission request.
     if not any(normalize(label) in DENY for label in labels) or not pick_button(labels):
         summary["reason"] = "Non è una coppia di controlli di consenso riconoscibile"
+        return result
+    if command_request(dialog, controls):
+        summary["request_type"] = "command"
+        if not allow_commands:
+            summary.update(manual_required=True, reason="Approvazione automatica dei comandi disattivata")
+            return result
+        # Command execution has its own explicit opt-in, independent of file
+        # roots. Never select a persistent approval, even when preferred for files.
+        label = pick_button(labels, prefer_always=False)
+        selected = [c for c in controls if c.ControlTypeName == "ButtonControl" and c.Name == label]
+        if len(selected) != 1:
+            summary.update(manual_required=True, reason="Consenso singolo non disponibile o ambiguo")
+            return result
+        summary.update(eligible=True, selected=label, paths=[])
+        try:
+            instance = list(dialog.GetRuntimeId())
+        except AttributeError:
+            instance = []
+        result.update(button=selected[0], control=dialog, roots=roots, prefer_always=False,
+                      fingerprint=hashlib.sha256((text + json.dumps(labels) + json.dumps(instance)).encode()).hexdigest())
         return result
     targets = codex_permission_targets(controls)
     summary["file_request"] = targets is not None
