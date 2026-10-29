@@ -101,6 +101,16 @@ class NavigationFlowTests(unittest.TestCase):
     def pump(self):
         self.root.update();self.root.update_idletasks()
 
+    def test_operational_cards_and_agenda_footer_fit_the_complete_workspace(self):
+        workspace_ui.update_insights(self.app,automation_policy.load_config())
+        for size in ('1040x790','1280x850','1520x900'):
+            with self.subTest(size=size):
+                self.root.geometry(size);self.pump()
+                for widget in [*self.app.dashboard_automations.cards.values(),self.app.dashboard_agenda.footer]:
+                    self.assertLessEqual(widget.winfo_rooty()-self.root.winfo_rooty()+widget.winfo_height(),self.root.winfo_height())
+                    self.assertLessEqual(widget.winfo_rootx()-self.root.winfo_rootx()+widget.winfo_width(),self.root.winfo_width())
+                self.assertGreater(self.app.dashboard_agenda.canvas.winfo_height(),40)
+
     def row_action(self,job_id,action):
         # Hosted Windows runners may have a narrower desktop. Exercise a real
         # visible control, never invoke a button clipped outside the viewport.

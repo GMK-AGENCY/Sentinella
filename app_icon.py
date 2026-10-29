@@ -36,6 +36,11 @@ def icon_paths():
     return base / "assets" / "sentinella.ico", base / "assets" / "sentinella.png"
 
 
+def shortcut_icon():
+    """One brand icon for source shortcuts and the installed executable."""
+    return str(Path(sys.executable).resolve() if getattr(sys, 'frozen', False) else icon_paths()[0]) + ',0'
+
+
 def _apply_ico(window, ico):
     if not ico.is_file():
         return False

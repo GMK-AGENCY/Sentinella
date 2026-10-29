@@ -1,5 +1,5 @@
 #ifndef AppVersion
-#define AppVersion "0.2.11"
+#define AppVersion "0.2.12"
 #endif
 #ifndef BinaryDir
   #define BinaryDir "..\dist\Sentinella"
@@ -35,7 +35,11 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "{#BinaryDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{userprograms}\Sentinella"; Filename: "{app}\Sentinella.exe"; AppUserModelID: "Sentinella.Desktop"; Check: not WizardNoIcons
+Name: "{userprograms}\Sentinella"; Filename: "{app}\Sentinella.exe"; IconFilename: "{app}\Sentinella.exe"; AppUserModelID: "Sentinella.Desktop"; Check: not WizardNoIcons
+Name: "{userdesktop}\Sentinella"; Filename: "{app}\Sentinella.exe"; IconFilename: "{app}\Sentinella.exe"; AppUserModelID: "Sentinella.Desktop"; Tasks: desktopicon
+
+[Tasks]
+Name: "desktopicon"; Description: "Crea un collegamento sul desktop"; GroupDescription: "Collegamenti:"; Flags: unchecked
 
 [Run]
 Filename: "{app}\Sentinella.exe"; Description: "Avvia Sentinella"; Flags: nowait postinstall skipifsilent

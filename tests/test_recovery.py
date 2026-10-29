@@ -54,6 +54,8 @@ class RecoveryTests(unittest.TestCase):
                 self.assertTrue(target.exists())
                 self.assertIn("sentinel_launcher.py", shortcut.Arguments)
                 self.assertIn("--background", shortcut.Arguments)
+                from app_icon import shortcut_icon
+                self.assertEqual(shortcut.IconLocation,shortcut_icon())
                 saved = json.loads((root / "approval-config.json").read_text())
                 self.assertTrue(saved["paused"])
                 self.assertEqual(saved["allowed_project_roots"], ["C:/project"])
