@@ -6,6 +6,8 @@ Sentinella opera con i permessi dell'utente Windows corrente. Il riconoscimento 
 
 Le risposte automatiche e i consensi file sono facoltativi e disabilitati al primo avvio. Abilitali soltanto per sessioni e cartelle di cui accetti il comportamento. Un consenso file riconosciuto non autorizza eliminazioni, comandi shell, rete, credenziali o operazioni fuori dalle cartelle delegate. Un percorso citato dal modello non dimostra da solo l'ambito della richiesta nativa.
 
+L'opzione separata **Approva automaticamente i comandi** è disattivata per default. Se la abiliti, Sentinella può premere **Consenti una volta** sulle richieste native di esecuzione riconosciute, comprese quelle che segnalano comandi pericolosi. Questo può consentire cancellazioni, accesso alla rete e operazioni irreversibili anche fuori dalle cartelle autorizzate: il filtro dei consensi file non limita questa modalità. Abilitala soltanto se accetti le conseguenze dei comandi proposti nelle sessioni controllate. Non concede approvazioni permanenti e non gestisce consensi di Windows, accessi o impostazioni di sicurezza. Restano obbligatori pausa generale, inattività configurata, identità del processo e riconoscimento del documento nativo; una pagina web integrata non basta. Disattivare l'opzione revoca anche un clic preparato ma non ancora eseguito.
+
 Non è dichiarata una finestra di supporto a lungo termine per le versioni precedenti. Nelle segnalazioni indica la versione esatta; non presumere che una vecchia versione sia protetta perché il processo è ancora in esecuzione. Non sono promessi tempi di risposta o di correzione.
 
 ## Se osservi un invio o un consenso errato
