@@ -1,7 +1,7 @@
 """Native, vertically scrolling schedule presentation; no delivery side effects."""
 from datetime import datetime, timedelta
 import tkinter as tk
-from tkinter import ttk, font as tkfont
+from tkinter import ttk
 from ui_components import AutoScrollbar
 from switch_control import Tooltip
 
@@ -39,7 +39,7 @@ class AgendaView(tk.Frame):
     def __init__(self, parent, on_edit, on_toggle, on_history, on_new):
         super().__init__(parent, bg=BG)
         self.on_edit, self.on_toggle, self.on_history = on_edit, on_toggle, on_history
-        self.model = {}; self.rows = {}; self.order=[]; self.section_headers={}; self.diagnostic = None; self.diagnostic_labels = [];self.fonts={}
+        self.model = {}; self.rows = {}; self.order=[]; self.section_headers={}; self.diagnostic = None; self.diagnostic_labels = []
         style=ttk.Style(self)
         style.configure('AgendaAction.TButton',font=('Segoe UI',10),padding=(7,5))
         self.summary=tk.Frame(self,bg=BG); self.summary.pack(fill='x',pady=(0,18))
@@ -83,27 +83,26 @@ class AgendaView(tk.Frame):
         widths[2]=max(126,widths[2])
         widths[3]=max(70,available-sum(widths[:3]))
         for column,width in enumerate(widths,2):row['inner'].columnconfigure(column,weight=0,minsize=width)
-        row['badge'].configure(wraplength=0)
         self.fit_text(row['badge'],row['record']['status'],widths[2]-28)
         self.fit_title(row, max(90, widths[0]-10))
         self.fit_text(row['countdown'],row['record']['countdown'] if row['record']['status']!='In pausa' else '—',max(70,widths[1]-10))
         self.fit_text(row['receipt'],'Ricevuto' if row['record'].get('last_confirmed_at') is not None else 'Ricevuta non disponibile',max(70,widths[3]-10))
+        for key,column in (('frequency',0),('expected',1),('receipt_date',3)):
+            self.fit_text(row[key],row[key].cget('text'),widths[column]-10)
+        top=max(30,*(row[key].winfo_reqheight() for key in ('title','countdown','receipt','actions')))
+        bottom=max(22,*(row[key].winfo_reqheight() for key in ('frequency','expected','receipt_date')))
+        row['inner'].rowconfigure(0,minsize=top)
+        row['inner'].rowconfigure(1,minsize=bottom)
+        height=max(top+bottom,row['badge'].winfo_reqheight())+18
+        if row['frame'].cget('height')!=height:row['frame'].configure(height=height)
 
     def fit_title(self,row,available):
         self.fit_text(row['title'],row['record']['title'],available)
 
     def fit_text(self,label,text,available):
-        specification=str(label.cget('font'))
-        if specification not in self.fonts:self.fonts[specification]=tkfont.Font(font=specification)
-        font=self.fonts[specification]
-        if font.measure(text)>available:
-            low,high=0,len(text)
-            while low<high:
-                middle=(low+high+1)//2
-                if font.measure(text[:middle]+'…')<=available:low=middle
-                else:high=middle-1
-            text=text[:low]+'…'
-        label.configure(text=text)
+        # Status and activity are operational information, never abbreviations.
+        # Let Tk wrap the literal text; layout_row grows the complete row.
+        label.configure(text=text,wraplength=max(40,available),justify='left')
 
     def build_row(self,record):
         jid=record['job_id']
@@ -208,6 +207,7 @@ class AgendaView(tk.Frame):
                 self.section_headers[key]=header
                 for item in items:self.rows[item['job_id']]['frame'].pack(fill='x',padx=16)
         self.extent.set(f'{len(records)} messaggi · Scorri per vedere gli altri' if len(records)>5 else f'{len(records)} messaggio' if len(records)==1 else f'{len(records)} messaggi')
+        self.canvas.configure(height=min(400,max(76,sum(row['frame'].cget('height') for row in self.rows.values())+len(sections)*38)))
         self.refresh_diagnostics()
 
     def show_diagnostics(self):

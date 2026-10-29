@@ -1,5 +1,10 @@
 # Modifiche
 
+## 0.2.13
+
+- Claude: le etichette Aperta/Chiusa/Open/Closed e il conteggio delle pull request non nascondono più una chat esistente al riconoscimento del destinatario. Restano obbligatori titolo esatto, progetto e assenza di omonimi ambigui.
+- Agenda: stati, attività e testi rimangono completi, senza puntini di troncamento. I testi vanno a capo e le righe crescono quanto necessario, mantenendo visibili i comandi e lo scorrimento.
+
 ## 0.2.12
 
 - Panoramica con quattro card per notifiche, controllo chat, risposte automatiche e recupero delle scritture: opzioni abilitate, pausa, attesa di inattività e controlli non aggiornati restano distinti.

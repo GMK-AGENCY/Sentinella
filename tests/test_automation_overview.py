@@ -115,3 +115,22 @@ class AutomationLayoutTests(unittest.TestCase):
                     self.assertLessEqual(card.meta.winfo_y()+card.meta.winfo_height(),card.winfo_height())
                     self.assertEqual(card.title.cget('text'),card.model['title'])
         self.assertEqual(len(agenda.rows),10)
+
+    def test_long_operational_labels_wrap_inside_rows_without_loss_at_supported_widths(self):
+        root=tk.Tk();root.withdraw();root.attributes('-alpha',0);root.attributes('-disabled',True)
+        self.addCleanup(root.destroy)
+        agenda=AgendaView(root,Mock(),Mock(),Mock(),Mock());agenda.pack(fill='both',expand=True)
+        jobs=[dict(id=str(i),version='v',title='Chat di progetto con un titolo lungo e completo '+str(i),
+                   enabled=True,activated_at=100000,interval_seconds=1800,repeat=True) for i in range(3)]
+        states={j['id']:dict(version='v',due=99900,phase='idle',detail='Chat non trovata o titolo ambiguo') for j in jobs}
+        model=snapshot({'apps':{}},jobs,states,[],{},100000);agenda.render(model);root.deiconify()
+        for width in (796,1040,1300):
+            root.geometry(f'{width}x650');root.update();root.update_idletasks()
+            for row in agenda.rows.values():
+                for key,expected in [('badge','Destinatario non disponibile'),('countdown','Controlla il destinatario'),
+                                     ('title',row['record']['title']),('receipt','Ricevuta non disponibile')]:
+                    label=row[key]
+                    self.assertEqual(label.cget('text'),expected)
+                    self.assertLessEqual(label.winfo_reqheight(),label.winfo_height()+1)
+                    self.assertLessEqual(label.winfo_y()+label.winfo_height(),row['inner'].winfo_height()+1)
+                self.assertLessEqual(row['actions'].winfo_x()+row['actions'].winfo_width(),row['inner'].winfo_width()+1)
