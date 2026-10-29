@@ -1,5 +1,11 @@
 # Modifiche
 
+## 0.2.11
+
+- I pannelli informativi, come Utilizzo di Claude, e i dialoghi nascosti non bloccano più gli invii programmati. Il controllo verifica visibilità, modalità e controlli interni: richieste reali e stati sconosciuti restano protetti.
+- Il controllo dei dialoghi viene ripetuto prima di Invia; le schede di domande nascoste o disabilitate non vengono considerate richieste attive.
+- Il registro indica il nome del dialogo che rinvia un invio. Aggiunta la diagnosi in sola lettura `--inspect-send-state`, senza lettura delle bozze o azioni sulla chat.
+
 ## 0.2.10
 
 - Ricevute Claude riconosciute anche quando il messaggio umano è accodato durante il lavoro insieme ad avvisi di sistema e l'evento di accodamento non contiene testo. Restano obbligatori testo esatto, sessione, orario e identificativi correlati dell'assorbimento.
