@@ -29,6 +29,9 @@ def snapshot(config, app):
     if not chat_content_available(controls):
         raise RuntimeError(f"Interfaccia {app} temporaneamente non disponibile")
     docs = [c for c in controls if c.ControlTypeName == "DocumentControl" and c.Name]
+    if app=='claude':
+        bound=[control for control,_ in document_sessions(controls) if control.Name]
+        if bound:docs=bound
     title = docs[-1].Name.removesuffix(" - Claude Code") if docs else ""
     return controls, title
 
@@ -119,8 +122,45 @@ def inventory(config, app):
     return {"app": app, "current_title": current, "chats": rows, "metadata_warning": warning}
 
 
+def document_sessions(controls):
+    """Exclude embedded browser documents: only Claude's session URL is proof."""
+    from urllib.parse import urlparse
+    import uuid
+    found=[]
+    for control in controls:
+        if control.ControlTypeName!='DocumentControl':continue
+        try:
+            url=urlparse(control.GetValuePattern().Value)
+            if url.scheme!='https' or url.hostname!='claude.ai' or not url.path.startswith('/epitaxy/local_'):continue
+            value=url.path.removeprefix('/epitaxy/local_')
+            if str(uuid.UUID(value))==value:found.append((control,value))
+        except Exception:continue
+    return found
+
+
+def selected_session_id(controls,app):
+    """Claude exposes its stable local session in the native document URL."""
+    if app!='claude':return None
+    found={identifier for _,identifier in document_sessions(controls)}
+    return next(iter(found)) if len(found)==1 else None
+
+
+def selected_matches(controls,current,job):
+    if job['app']=='claude' and job.get('session_id'):
+        return selected_session_id(controls,'claude')==job['session_id']
+    return current==job['title']
+
+
 def timer_target(rows, job):
     """Pinning moves an existing unique chat between virtual sidebar lists."""
+    from chat_identity import key
+    app,identifier=key(job)
+    if identifier:
+        from chat_catalog import enrich
+        observed=[(dict(row),control) for row,control in rows]
+        missing=[row for row,_ in observed if not key(row)[1]]
+        if missing:enrich(missing,app)
+        return [(row,control) for row,control in observed if key({**row,'app':app})==(app,identifier)]
     titled = [(row, control) for row, control in rows if row["title"] == job["title"]]
     scoped = [(row, control) for row, control in titled if row["group"] == job["group"]]
     if scoped:
@@ -155,7 +195,7 @@ def select_chat(config, app, title, job=None, live_guard=None):
     choices = timer_target(rows, job) if job is not None else [(row, c) for row, c in rows if row["title"] == title and not row["ambiguous"]]
     if len(choices) != 1 or choices[0][0]['ambiguous']:
         return {"app": app, "action": "none", "reason": "Chat non univoca o non disponibile"}
-    if current != title:
+    if not (selected_matches(controls,current,job) if job is not None else current==title):
         return invoke_chat_choice(config, app, choices[0][1], live_guard or live_block_reason)
     return {"app": app, "action": "none", "current_title": current}
 
@@ -221,9 +261,16 @@ def step(config, job, delivery, live_guard=None):
     blocked = action_block_reason(config)
     if blocked:
         return {"app": app, "action": "none", "reason": blocked}
+    from chat_identity import key, resolve
+    if key(job)[1]:
+        try:job=resolve(job)
+        except (OSError,ValueError) as exc:
+            return {'app':app,'action':'none','reason':'ID della chat da verificare: '+str(exc)}
     controls, current = snapshot(config, app)
     result = {"app": app, "title": job["title"], "action": "none"}
     matches = timer_target(entries(controls, app), job)
+    if app=='claude' and job.get('session_id') and selected_matches(controls,current,job):
+        matches=[({**job,'ambiguous':False,'status':'Disponibile'},None)]
     if len(matches) != 1 or matches[0][0]["ambiguous"]:
         return {**result, "reason": "Chat non trovata o titolo ambiguo: aggiorna la selezione"}
     busy_states = {"in elaborazione", "in esecuzione", "running", "working"}
@@ -232,7 +279,7 @@ def step(config, job, delivery, live_guard=None):
     blocked = live_guard()
     if blocked:
         return {**result, "reason": blocked}
-    if current != job["title"]:
+    if not selected_matches(controls,current,job):
         return {**result, **invoke_chat_choice(config, app, matches[0][1], live_guard)}
     buttons = [c for c in controls if c.ControlTypeName == "ButtonControl"]
     if not job.get("send_when_active") and any(normalize(b.Name) in {"interrompi", "stop", "stop response", "interrompi risposta"} for b in buttons):
@@ -303,9 +350,12 @@ def step(config, job, delivery, live_guard=None):
         if len(sends) == 1:
             def validate_draft():
                 fresh, selected = snapshot(config, app)
-                matches = timer_target(entries(fresh, app), job)
-                if selected != job['title'] or len(matches) != 1 or matches[0][0]['ambiguous']:
+                latest=resolve(job) if key(job)[1] else job
+                matches = timer_target(entries(fresh, app), latest)
+                if not selected_matches(fresh,selected,latest):
                     return False
+                if app!='claude' or not job.get('session_id'):
+                    if len(matches)!=1 or matches[0][0]['ambiguous']:return False
                 if send_block_reason(fresh):
                     return False
                 composers = [c for c in fresh if c.ControlTypeName == 'EditControl' and c.Name in labels and c.IsEnabled]

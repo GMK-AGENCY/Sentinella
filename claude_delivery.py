@@ -76,7 +76,8 @@ def locate(job):
             if n >= 3000 or time.monotonic() >= deadline:
                 raise ValueError('Indice Claude troppo ampio: identità non verificata')
             header = claude_header(path)
-            if header.get('isArchived') or header.get('title') != job['title']:
+            bound=job.get('session_id')
+            if header.get('isArchived') or (path.stem.removeprefix('local_')!=bound if bound else header.get('title') != job['title']):
                 continue
             # cwd can change to another worktree inside the SAME session. It
             # does not identify the sidebar group. The native adapter verifies

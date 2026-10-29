@@ -88,7 +88,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(existing['activated_at'], 123)
 
     def test_send_while_active_is_saved_for_both_apps(self):
-        targets = [{"app": app, "title": "Test " + app, "group": "Recenti", "thread_id": "pinned"} for app in ("codex", "claude")]
+        targets = [{"app": app, "title": "Test " + app, "group": "Recenti", "thread_id": "pinned","session_id":"pinned"} for app in ("codex", "claude")]
         view = SimpleNamespace(targets=targets, minutes=Mock(), message=Mock(), repeat=Mock(), send_when_active=Mock(), status=Mock(), render_jobs=Mock(), show_list=Mock(), selected_job=None, editor_signature=Mock(return_value=()), job_list=Mock())
         view.minutes.get.return_value = "30"
         view.message.get.return_value = "Saved literal"
@@ -298,7 +298,7 @@ class PolicyTests(unittest.TestCase):
         self.assertIn("pausa", result["reason"])
 
     def test_multiple_selected_chats_create_independent_timers(self):
-        targets = [{"app": app, "title": title, "group": "Recenti", "thread_id": "test-thread"} for app, title in (("codex", "Regia"), ("claude", "Lavoro"))]
+        targets = [{"app": app, "title": title, "group": "Recenti", "thread_id": "test-thread","session_id":"test-session"} for app, title in (("codex", "Regia"), ("claude", "Lavoro"))]
         view = SimpleNamespace(targets=targets, minutes=Mock(), message=Mock(), repeat=Mock(), status=Mock(), render_jobs=Mock(), show_list=Mock(), selected_job=None, editor_signature=Mock(return_value=()), job_list=Mock())
         view.minutes.get.return_value = "15"
         view.message.get.return_value = "Continua con il lavoro autorizzato."

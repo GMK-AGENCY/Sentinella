@@ -1,5 +1,12 @@
 # Modifiche
 
+## 0.2.14
+
+- Destinatari riconosciuti tramite ID stabile per Codex e Claude. I nomi aggiornati vengono risolti dall'ID; un ID assente, archiviato o ambiguo non viene sostituito con un'altra chat omonima.
+- Migrazione delle programmazioni esistenti con backup, preservando ID della programmazione, versione, pausa, scadenze, messaggi e prenotazioni. Per Claude viene privilegiata l'identità già documentata nelle ricevute o nelle bozze prenotate.
+- Verifica della chat Claude aperta tramite l'ID nell'URL del documento nativo; le pagine del browser integrato non vengono confuse con la sessione.
+- Salvataggi coordinati per conservare gli ID anche quando un editor era aperto prima della migrazione o della rinomina. Ricevute e bozze restano collegate alla stessa sessione dopo una rinomina.
+
 ## 0.2.13
 
 - Claude: le etichette Aperta/Chiusa/Open/Closed e il conteggio delle pull request non nascondono più una chat esistente al riconoscimento del destinatario. Restano obbligatori titolo esatto, progetto e assenza di omonimi ambigui.

@@ -149,12 +149,17 @@ class ClaudeDeliveryTests(unittest.TestCase):
         self.history.write_text('', encoding='utf-8')
         self.identity = {'history': str(self.history), 'session': 'session', 'index': 'index'}
         self.job = dict(id='job', version='v1', app='claude', title='Test', group='Project',
+                        session_id='fixture-ui-session',
                         message='Messaggio già autorizzato. ', enabled=True,
                         interval_seconds=900, activated_at=0, send_when_active=True)
         self.store = TimerStore(self.root / 'messages.sqlite3')
         self.state = self.store.prepare(self.job, 0)
         self.locator = patch('claude_delivery.locate', return_value=self.identity)
         self.locator.start()
+        resolver=patch('chat_identity.resolve',side_effect=lambda job:dict(job))
+        resolver.start();self.addCleanup(resolver.stop)
+        selected=patch('chat_desktop.selected_matches',side_effect=lambda controls,title,job:title==job['title'])
+        selected.start();self.addCleanup(selected.stop)
         self.delivery = Delivery(self.store, self.root)
 
     def tearDown(self):
@@ -255,7 +260,7 @@ class ClaudeDeliveryTests(unittest.TestCase):
         pattern = SimpleNamespace(Value=self.job['message'], SetValue=Mock())
         pattern.SetValue.side_effect = lambda value, **kwargs: setattr(pattern, 'Value', value)
         edit.GetValuePattern.return_value = pattern
-        row = ({'title': 'Test', 'group': 'Project', 'ambiguous': False}, Mock())
+        row = ({**self.job,'ambiguous': False}, Mock())
         saved = Mock()
         with patch('chat_desktop.action_block_reason', return_value=None), \
              patch('chat_desktop.snapshot', return_value=([edit], 'Test')), \
@@ -388,7 +393,7 @@ class ClaudeDeliveryTests(unittest.TestCase):
 
     def test_session_identity_survives_a_worktree_directory_change(self):
         sid = 'f2fd7e10-307d-4a99-8492-88519e698231'
-        index = self.root / 'Local/Claude-Data/claude_test/claude-code-sessions/a/b/index.json'
+        index = self.root / 'Local/Claude-Data/claude_test/claude-code-sessions/a/b/local_fixture-ui-session.json'
         index.parent.mkdir(parents=True)
         index.write_text(json.dumps({'title': 'Test', 'cwd': 'C:/Work/AnotherWorktree', 'originCwd': 'C:/Work/AnotherWorktree',
                                      'isArchived': False, 'lastActivityAt': 1, 'cliSessionId': sid}), encoding='utf-8')
@@ -397,7 +402,8 @@ class ClaudeDeliveryTests(unittest.TestCase):
         with patch.dict(os.environ, {'LOCALAPPDATA': str(self.root / 'Local'), 'APPDATA': str(self.root / 'Roaming')}), \
              patch('claude_delivery.Path.home', return_value=self.root):
             self.assertEqual(locate(self.job)['session'], sid)
-            duplicate = index.with_name('duplicate.json'); duplicate.write_bytes(index.read_bytes())
+            duplicate = index.parent.parent/'other'/index.name
+            duplicate.parent.mkdir();duplicate.write_bytes(index.read_bytes())
             with self.assertRaises(ValueError):locate(self.job)
 
     def test_same_session_history_can_move_between_worktrees_before_and_after_invoke(self):

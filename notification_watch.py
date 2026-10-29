@@ -21,6 +21,9 @@ LOGS = ROOT / "logs"
 class Monitor:
     def __init__(self):
         LOGS.mkdir(exist_ok=True)
+        from chat_identity import refresh_saved
+        try:refresh_saved(ROOT)
+        except (OSError,ValueError):pass
         self.queue = queue.Queue()
         self.dedup = Deduplicator()
         self.rows = {}

@@ -9,6 +9,8 @@ if __name__ == "__main__":
         parser.add_argument("--skip-app", action="append", default=[], choices=("codex", "claude"))
         parser.add_argument('--reconcile-only', action='store_true')
         args = parser.parse_args()
+        from chat_identity import refresh_saved
+        refresh_saved(ROOT)
         config = json.loads((ROOT / "approval-config.json").read_text(encoding="utf-8"))
         config["temporarily_unavailable_apps"] = args.skip_app
         result = tick(config, TimerStore(ROOT / "logs" / "messages.sqlite3"), reconcile_only=args.reconcile_only)
