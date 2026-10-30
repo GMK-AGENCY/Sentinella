@@ -202,6 +202,8 @@ def run():
         last_scan_results[app] = {"ready": scan["ready"], "question_windows": result.get("windows"),
                                   "question_error": result.get("error"),
                                   "approval_error": (scan.get("approval") or {}).get("error"),
+                                  "partial": bool(result.get('partial') or (scan.get('approval') or {}).get('partial')),
+                                  "partial_reason": result.get('partial_reason') or (scan.get('approval') or {}).get('partial_reason'),
                                   "manual_approvals": [d.get("reason") for d in (scan.get("approval") or {}).get("dialogs", []) if d.get("manual_required")],
                                   "reason": result.get("reason") or (scan.get("approval") or {}).get("reason")}
         state.update(last_result=result, waiting_for_apps=sorted(waiting_apps), last_scan_results=last_scan_results)

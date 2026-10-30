@@ -1,7 +1,7 @@
 """One bounded timer step; launched by the common desktop supervisor."""
 import json
 import argparse
-from message_engine import ROOT, TimerStore, tick
+from message_engine import ROOT, TimerStore, run_cycle
 
 if __name__ == "__main__":
     try:
@@ -13,7 +13,7 @@ if __name__ == "__main__":
         refresh_saved(ROOT)
         config = json.loads((ROOT / "approval-config.json").read_text(encoding="utf-8"))
         config["temporarily_unavailable_apps"] = args.skip_app
-        result = tick(config, TimerStore(ROOT / "logs" / "messages.sqlite3"), reconcile_only=args.reconcile_only)
+        result = run_cycle(config, TimerStore(ROOT / "logs" / "messages.sqlite3"), reconcile_only=args.reconcile_only)
         print(json.dumps(result, ensure_ascii=True), flush=True)
     except Exception as exc:
         print(json.dumps({"action": "error", "error": f"{type(exc).__name__}: {exc}"}), flush=True)

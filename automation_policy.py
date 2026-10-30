@@ -49,6 +49,11 @@ def idle_seconds():
     info = LASTINPUTINFO(ctypes.sizeof(LASTINPUTINFO), 0)
     if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
         return 0.0  # A failed observation never grants permission to take focus.
+    from input_activity import device_idle
+    ctypes.windll.kernel32.GetTickCount64.restype = ctypes.c_ulonglong
+    observed = device_idle(ROOT,int(ctypes.windll.kernel32.GetTickCount64()),int(info.dwTime))
+    if observed is not None:
+        return observed
     ctypes.windll.kernel32.GetTickCount.restype = wintypes.DWORD
     return ((ctypes.windll.kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000
 

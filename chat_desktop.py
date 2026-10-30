@@ -2,12 +2,13 @@
 import argparse
 import json
 import re
+import time
 from collections import Counter
 from approval_policy import normalize
 from automation_policy import (action_block_reason, live_block_reason, idle_seconds,
                                typing_keys_down, background_navigation_block_reason)
 from question_desktop import walk, native_controls, desktop_is_unlocked, question_card, chat_content_available
-from desktop_identity import app_window_handles
+from desktop_identity import app_window_handles,claude_document_session,document_controls,native_document
 
 from runtime_paths import data_root
 ROOT = data_root()
@@ -15,19 +16,47 @@ SEND = {"invia", "invia messaggio", "invia prompt", "send", "send message", "sub
         "reindirizza", "steer", "invia ora", "send now"}
 
 
-def snapshot(config, app):
+def snapshot(config, app, job=None):
     import psutil
     import uiautomation as auto
     auto.SetGlobalSearchTimeout(1)
     if not desktop_is_unlocked():
         raise RuntimeError("Desktop bloccato o non interattivo")
     expected = config["apps"][app]["process_path"].casefold()
-    windows = [auto.ControlFromHandle(handle) for handle in app_window_handles(expected)]
-    if len(windows) != 1:
-        raise RuntimeError(f"Finestra {app} non univoca o non aperta ({len(windows)})")
-    controls = native_controls(windows[0])
-    if not chat_content_available(controls):
-        raise RuntimeError(f"Interfaccia {app} temporaneamente non disponibile")
+    candidates = []
+    errors = []
+    deadline = time.monotonic() + 6
+    for handle in app_window_handles(expected):
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"Scansione delle finestre {app} incompleta: nessun invio")
+        try:
+            controls = native_controls(auto.ControlFromHandle(handle))
+            if chat_content_available(controls):
+                candidates.append(controls)
+        except Exception as exc:
+            errors.append(type(exc).__name__)
+    if app == 'claude':
+        native = [controls for controls in candidates if document_sessions(controls)]
+        if native:
+            candidates = native
+        target = (job or {}).get('session_id')
+        if target:
+            matching = [controls for controls in candidates if any(identifier == target for _, identifier in document_sessions(controls))]
+            if matching:
+                candidates = matching
+                composers=[controls for controls in candidates if any(
+                    c.ControlTypeName=='EditControl' and c.Name=='Prompt' and c.IsEnabled
+                    and (owner:=native_document(c,'claude')) is not None
+                    and claude_document_session(owner)==target for c in controls)]
+                if composers:candidates=composers
+    if len(candidates) != 1:
+        raise RuntimeError(f"Finestra chat {app} non univoca o non disponibile ({len(candidates)} chat utilizzabili; {len(errors)} letture fallite)")
+    controls = candidates[0]
+    if app=='claude' and (job or {}).get('session_id'):
+        targets=[doc for doc,identifier in document_sessions(controls) if identifier==job['session_id']]
+        if targets:
+            if len(targets)!=1:raise RuntimeError('Documento della chat non univoco: nessun invio')
+            controls=document_controls(controls,targets[0])
     docs = [c for c in controls if c.ControlTypeName == "DocumentControl" and c.Name]
     if app=='claude':
         bound=[control for control,_ in document_sessions(controls) if control.Name]
@@ -124,17 +153,10 @@ def inventory(config, app):
 
 def document_sessions(controls):
     """Exclude embedded browser documents: only Claude's session URL is proof."""
-    from urllib.parse import urlparse
-    import uuid
     found=[]
     for control in controls:
-        if control.ControlTypeName!='DocumentControl':continue
-        try:
-            url=urlparse(control.GetValuePattern().Value)
-            if url.scheme!='https' or url.hostname!='claude.ai' or not url.path.startswith('/epitaxy/local_'):continue
-            value=url.path.removeprefix('/epitaxy/local_')
-            if str(uuid.UUID(value))==value:found.append((control,value))
-        except Exception:continue
+        identifier=claude_document_session(control)
+        if identifier:found.append((control,identifier))
     return found
 
 
@@ -190,7 +212,9 @@ def select_chat(config, app, title, job=None, live_guard=None):
     blocked = action_block_reason(config)
     if blocked:
         return {"app": app, "action": "none", "reason": blocked}
-    controls, current = snapshot(config, app)
+    controls, current = snapshot(config, app, job)
+    if job is not None and selected_matches(controls,current,job):
+        return {'app':app,'action':'none','current_title':current}
     rows = entries(controls, app)
     choices = timer_target(rows, job) if job is not None else [(row, c) for row, c in rows if row["title"] == title and not row["ambiguous"]]
     if len(choices) != 1 or choices[0][0]['ambiguous']:
@@ -266,7 +290,7 @@ def step(config, job, delivery, live_guard=None):
         try:job=resolve(job)
         except (OSError,ValueError) as exc:
             return {'app':app,'action':'none','reason':'ID della chat da verificare: '+str(exc)}
-    controls, current = snapshot(config, app)
+    controls, current = snapshot(config, app, job)
     result = {"app": app, "title": job["title"], "action": "none"}
     matches = timer_target(entries(controls, app), job)
     if app=='claude' and job.get('session_id') and selected_matches(controls,current,job):
@@ -349,7 +373,7 @@ def step(config, job, delivery, live_guard=None):
         sends = [c for c in local if c.ControlTypeName == "ButtonControl" and normalize(c.Name) in SEND and c.IsEnabled]
         if len(sends) == 1:
             def validate_draft():
-                fresh, selected = snapshot(config, app)
+                fresh, selected = snapshot(config, app, job)
                 latest=resolve(job) if key(job)[1] else job
                 matches = timer_target(entries(fresh, app), latest)
                 if not selected_matches(fresh,selected,latest):

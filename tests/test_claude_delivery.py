@@ -359,7 +359,7 @@ class ClaudeDeliveryTests(unittest.TestCase):
              patch('automation_policy.action_block_reason', return_value=None), \
              patch('automation_policy.native_delivery_config', return_value={}):
             self.assertEqual(tick({}, self.store)['action'], 'draft_preserved')
-            button.GetInvokePattern.assert_not_called()
+            button.GetInvokePattern.return_value.Invoke.assert_not_called()
             self.assertEqual(self.delivery.current(self.job)['stage'], 'prepared')
             self.assertIsNone(self.delivery.current(self.job)['send_started'])
 

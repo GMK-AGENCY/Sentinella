@@ -42,6 +42,11 @@ class QuestionReplyPolicyTests(unittest.TestCase):
                 document = Mock(ControlTypeName='DocumentControl', Name='Test question', AriaRole='')
                 edit = Mock(ControlTypeName='EditControl', Name='Rispondi', AriaRole='')
                 button = Mock(ControlTypeName='ButtonControl', Name='Invia', AriaRole='', IsEnabled=True)
+                document.GetValuePattern.return_value.Value = ('app://-/index.html' if app=='codex' else
+                    'https://claude.ai/epitaxy/local_11111111-2222-4333-8444-555555555555')
+                document.GetRuntimeId.return_value=[1]
+                edit.GetRuntimeId.return_value=[2];edit.GetParentControl.return_value=document
+                button.GetRuntimeId.return_value=[3];button.GetParentControl.return_value=document
                 value = edit.GetValuePattern.return_value
                 value.Value = ''
                 card = {'edit': edit, 'send': button, 'text': 'Question?', 'runtime': [12, 34]}

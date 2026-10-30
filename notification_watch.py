@@ -59,6 +59,8 @@ class Monitor:
         build_workspace(self)
         self.refresh_dashboard()
         self.root.protocol("WM_DELETE_WINDOW", self.close)
+        from input_activity import DeviceActivity
+        self.activity = DeviceActivity(ROOT,self.run_id).start()
         self.start_worker()
         self.start_supervisor()
         (LOGS / "monitor.pid").write_text(str(os.getpid()), encoding="ascii")
@@ -153,7 +155,8 @@ class Monitor:
         self.supervisor_started_wall = time.time()
         self.supervisor_recovery.started()
         try:
-            self.supervisor = subprocess.Popen(command("question_supervisor"), cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
+            self.supervisor = subprocess.Popen(command("question_supervisor"), cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW,
+                                               env={**os.environ,'SENTINELLA_RUN_ID':self.run_id})
             self.dashboard_signature = None
             self.refresh_dashboard()
         except OSError as exc:
@@ -375,6 +378,7 @@ class Monitor:
         from sentinel_launcher import atomic_json
         atomic_json(LOGS / "exit-intent.json", {"run_id": self.run_id, "pid": os.getpid(), "closed_at": time.time()})
         self.monitoring = False
+        if getattr(self,'activity',None):self.activity.stop()
         self.stop_worker()
         if self.supervisor:
             import psutil
