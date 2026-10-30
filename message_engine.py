@@ -281,7 +281,6 @@ def tick(config, store, now=None, adapter=None, reconcile_only=False):
             delivery['can_redraft'] = bool(reservation and reservation['stage'] == 'prepared' and reservation['send_started'] is None)
             delivery['drafted'] = delivery['drafted'] or delivery['can_redraft']
         result = adapter(native_config, job, delivery, live_guard=guard) if claude else adapter(config, job, delivery)
-        if not result.get('error'):store.recover(job,now)
         action = result.get("action")
         if action == "drafted":
             store.update(job, "drafted", "Messaggio preparato: invio al prossimo controllo")
@@ -310,7 +309,13 @@ def tick(config, store, now=None, adapter=None, reconcile_only=False):
             pattern=button.GetInvokePattern()
             store.update(job, "uncertain", "Invio iniziato: verifica necessaria se il processo si interrompe")
             if claude:
-                claude.begin_send(job)
+                try:
+                    claude.begin_send(job)
+                except Exception:
+                    reservation=claude.current(job)
+                    if reservation and reservation['stage']=='prepared' and reservation['send_started'] is None:
+                        store.update(job,'drafted','Prenotazione interrotta prima del clic: bozza conservata')
+                    raise
                 try:
                     cancelled=guard() or not current_job_matches(job) or not validate_draft()
                 except Exception:
@@ -324,6 +329,7 @@ def tick(config, store, now=None, adapter=None, reconcile_only=False):
                     return {'action': 'draft_preserved', 'job': job['id']}
             pattern.Invoke()
             if claude:
+                store.recover(job,now)
                 return {'action': 'awaiting_receipt', 'job': job['id'], 'reason': 'Invio avviato; attendo il messaggio utente nella cronologia Claude'}
             sent = time.time() if real_clock else now
             store.update(job, "idle" if job.get("repeat", True) else "finished", "Messaggio inviato", due=sent + job["interval_seconds"], sent=sent)
@@ -337,5 +343,6 @@ def tick(config, store, now=None, adapter=None, reconcile_only=False):
         else:
             store.update(job, state["phase"], result.get("reason", "Apertura della chat"))
             store.defer(job, now)
+        if not result.get('error'):store.recover(job,now)
         return {**result, "job": job["id"]}
     return pending_result or {"action": "idle"}

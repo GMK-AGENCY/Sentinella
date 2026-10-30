@@ -102,6 +102,20 @@ class ReliabilityMatrixTests(unittest.TestCase):
     def make(self):
         harness=Harness();self.addCleanup(harness.close);return harness
 
+    def test_failure_before_send_claim_preserves_retryable_owned_preparation(self):
+        h=self.make()
+        self.assertEqual(h.cycle(61)['action'],'drafted')
+        with patch('claude_delivery.Delivery.begin_send',side_effect=OSError('History unavailable before claim')):
+            self.assertEqual(h.cycle(62)['action'],'error')
+            self.assertEqual(h.cycle(68)['action'],'error')
+        self.assertEqual(h.state['error_attempts'],2)
+        self.assertEqual(h.state['phase'],'drafted')
+        self.assertEqual(h.clicks,0)
+        self.assertIsNone(h.state['last_sent'])
+        self.assertEqual(h.cycle(190)['action'],'awaiting_receipt')
+        self.assertEqual(h.cycle(191)['action'],'draft_cleared')
+        self.assertEqual(h.clicks,1)
+
     def test_real_protocol_repeats_multiple_slots_with_receipts_and_no_duplicate(self):
         h=self.make()
         for slot in range(4):
