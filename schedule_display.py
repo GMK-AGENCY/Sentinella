@@ -22,6 +22,9 @@ def _schedule_display(job, stored, config, now, waiting_reason=None):
     if not job.get("enabled") or config.get("paused"):
         return {**result, "status": "In pausa", "next": "Riprendi Sentinella" if config.get("paused") else "Riprendi il messaggio"}
     detail = result['detail'].casefold()
+    if state.get('delivery_error') and phase not in {'uncertain','finished'}:
+        return {**result,'status':'Errore invio','next':'Nuovo tentativo automatico',
+                'detail':state['delivery_error']+' · Il tentativo verrà ripetuto senza modificare la scadenza o le bozze.'}
     before_send = phase != 'uncertain' or (state.get('local_stage') in {'reserved','drafted'} and 'bozza scomparsa' not in detail)
     pc_wait = ('cambio chat rinviato' in detail or
                due <= now and waiting_reason and waiting_reason.startswith('PC in uso') and not job.get('send_when_present'))
@@ -97,6 +100,7 @@ def schedule_display(job, stored, config, now, waiting_reason=None):
     else:
         precise = 'Tra ' + duration
     canonical = {'In pausa':('paused','In pausa'), 'Completato':('completed','Completato'),
+                 'Errore invio':('error','Invio bloccato'),
                  'Bozza presente':('draft','Bozza nella chat'), 'Preparazione':('preparing','In preparazione'),
                  'Accodato alla chat':('queued','Accodato alla chat'),
                  'Verifica ricevuta':('confirming','Conferma in corso'), 'Da verificare':('unconfirmed','Ricezione non confermata'),
@@ -111,6 +115,7 @@ def schedule_display(job, stored, config, now, waiting_reason=None):
     detail = result['detail']
     if key == 'unconfirmed':
         detail = 'Un tentativo precedente non ha ancora una ricevuta verificata. La programmazione è abilitata, ma quel tentativo non viene ripetuto per evitare duplicati.'
+        if state.get('delivery_error'):detail += ' Ultimo errore: '+state['delivery_error']
     elif key == 'draft':
         detail = 'Il campo messaggio nell’app destinataria contiene una bozza diversa da quella preparata da Sentinella. La programmazione è salvata; il testo nella chat resta intatto e blocca nuovi invii finché il campo non è libero.'
     elif key == 'paused':
@@ -118,6 +123,6 @@ def schedule_display(job, stored, config, now, waiting_reason=None):
         if state.get('phase') == 'uncertain':
             detail += ' Il tentativo precedente resta registrato nel registro e non verrà ripetuto senza prova.'
     return {**result, 'status':label, 'status_key':key,
-            'severity':'warning' if key in {'draft','unconfirmed','attention'} else 'info',
+            'severity':'warning' if key in {'draft','unconfirmed','attention','error'} else 'info',
             'detail':detail, "activation": activation, "activity": label, "next_precise": precise,
             "scheduled_at": clock_label(result["due"], now)}

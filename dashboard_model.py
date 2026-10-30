@@ -96,6 +96,9 @@ def automation_cards(config, health, now):
     elif not fresh_checks:
         chat.update(badge='Da verificare' if checked else 'In avvio',tone='warning',detail='Il prossimo controllo deve ancora essere verificato.')
     else:
+        partial = [supervisor.get('last_scan_results',{}).get(app,{}) for app in selected if supervisor.get('last_scan_results',{}).get(app,{}).get('partial')]
+        if partial:
+            chat.update(badge='Parziale',tone='warning',detail=partial[0].get('partial_reason') or 'Una finestra non è stata verificata.')
         manual = [reason for app in selected for reason in supervisor.get('last_scan_results',{}).get(app,{}).get('manual_approvals',[]) if reason]
         if manual:
             chat.update(badge='Consenso manuale',tone='warning',detail=manual[0],meta='Gestisci la richiesta nella chat o verifica le opzioni in Impostazioni')

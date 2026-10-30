@@ -10,7 +10,7 @@ import time
 
 from approval_policy import normalize
 from automation_policy import app_enabled, target_titles, action_block_reason, live_block_reason
-from desktop_identity import app_window_handles, foreground_process_id
+from desktop_identity import app_window_handles, foreground_process_id, native_document, document_controls
 
 from runtime_paths import data_root
 ROOT = data_root()
@@ -203,10 +203,16 @@ def inspect(config, app_name, target_title=None, act=False):
         result["foreground_process"] = psutil.Process(foreground_process_id()).name()
     except psutil.Error:
         result["foreground_process"] = "unknown"
+    result['usable_windows'] = 0
     for window in windows:
-        controls = native_controls(window)
+        try:
+            controls = native_controls(window)
+        except Exception as exc:
+            result.update(partial=True, partial_reason=f'Una finestra non è leggibile: {type(exc).__name__}')
+            continue
         if not chat_content_available(controls):
-            return {**result, "available": False, "reason": f"Interfaccia {app_name} temporaneamente non disponibile"}
+            continue
+        result['usable_windows'] += 1
         buttons = [c for c in controls if c.ControlTypeName == "ButtonControl"]
         edits = [c for c in controls if c.ControlTypeName == "EditControl"]
         result["documents"] = [c.Name[:150] for c in controls if c.ControlTypeName == "DocumentControl"]
@@ -251,6 +257,15 @@ def inspect(config, app_name, target_title=None, act=False):
                 return result
             result["reason"] = "Chat richiesta non aperta: nessuna risposta inviata"
             continue
+        documents=[c for c in controls if c.ControlTypeName=='DocumentControl' and native_document(c,app_name) is not None]
+        if target_title:
+            documents=[c for c in documents if c.Name.removesuffix(' - Claude Code')==target_title] if app_name=='claude' else documents
+        if len(documents)!=1:
+            result['reason']='Documento della chat non univoco o non disponibile'
+            continue
+        controls=document_controls(controls,documents[0])
+        buttons=[c for c in controls if c.ControlTypeName=='ButtonControl']
+        edits=[c for c in controls if c.ControlTypeName=='EditControl']
         card = question_card(controls)
         plain_title = target_title or result["current_title"]
         if card is None and app_name == "claude" and plain_title in result["headings"] and plain_claude_candidate(controls, plain_title, allowed_titles, config.get("away_reply", "")):
@@ -331,6 +346,8 @@ def inspect(config, app_name, target_title=None, act=False):
             opens[-1].GetInvokePattern().Invoke()
             result["action"] = "opened_question"
             return result
+    if windows and not result['usable_windows']:
+        result.update(available=False, reason=f'Interfaccia {app_name} temporaneamente non disponibile')
     return result
 
 

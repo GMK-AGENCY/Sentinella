@@ -1,5 +1,13 @@
 # Modifiche
 
+## 0.2.16
+
+- Corretto il riconoscimento con più finestre Claude: destinatario individuato tramite ID e campo di composizione nativo, escludendo pannelli accessori e pagine incorporate. Domande e consensi sono limitati al documento nativo verificato.
+- Errori di consegna persistenti e visibili, con tentativi distanziati, senza azzerare timer, bozze o ultimo invio. Un'attesa di ricevuta o un blocco su una programmazione non impedisce il controllo delle altre.
+- Prenotazioni concorrenti protette da vincoli e aggiornamenti atomici. Una mancata lettura prima del clic conserva la bozza; un risultato incerto dopo il clic richiede ricevuta e non causa reinvii automatici.
+- Osservazione passiva dell'origine degli input per evitare che gli eventi marcati da Windows come sintetici azzerino l'inattività. Ripiego conservativo se l'osservazione non è affidabile; nessuna memorizzazione di tasti, testo o coordinate.
+- Collaudi aggiuntivi di finestre multiple, bozze estranee, pause, presenza al PC, ricevute parziali, concorrenza, riavvii e 100 cicli simulati consecutivi. Le simulazioni restano distinte dalle consegne reali e dai limiti operativi documentati.
+
 ## 0.2.15
 
 - Nuova opzione **Approva automaticamente i comandi** in Impostazioni, separata dai consensi sui file e disattivata per default. Usa esclusivamente il consenso singolo; l'interfaccia avverte che può autorizzare cancellazioni e operazioni irreversibili anche fuori dalle cartelle delegate.

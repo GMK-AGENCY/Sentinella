@@ -6,6 +6,7 @@ returned, and never reuse an existing draft without a persisted ownership proof.
 import hashlib
 import json
 import os
+import sqlite3
 from pathlib import Path
 import time
 import uuid
@@ -230,11 +231,14 @@ class Delivery:
         self.store = store
         self.root = Path(root)
         self.db = store.db
+        self.claimed_token = None
         self.db.execute('''CREATE TABLE IF NOT EXISTS claude_timer_deliveries (
             token TEXT PRIMARY KEY, job_id TEXT, version TEXT, title TEXT, project TEXT,
             message TEXT, message_hash TEXT, identity TEXT, prepared_at REAL,
             send_started REAL, history_offset INTEGER, stage TEXT, receipt TEXT,
             receipt_uuid TEXT UNIQUE, backup TEXT)''')
+        self.db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS claude_one_pending_per_job
+            ON claude_timer_deliveries(job_id,version) WHERE stage IN ('prepared','sending')""")
         self.db.commit()
 
     def current(self, job):
@@ -251,9 +255,16 @@ class Delivery:
             raise ValueError('Prenotazione Claude già presente: nessun duplicato')
         identity = locate(job)
         token = str(uuid.uuid4())
-        self.db.execute('INSERT INTO claude_timer_deliveries(token,job_id,version,title,project,message,message_hash,identity,prepared_at,history_offset,stage) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-                        (token, job['id'], job['version'], job['title'], job['group'], job['message'], digest(job['message']), json.dumps(identity), time.time(), Path(identity['history']).stat().st_size, 'prepared'))
-        self.db.commit()
+        try:
+            self.db.execute('INSERT INTO claude_timer_deliveries(token,job_id,version,title,project,message,message_hash,identity,prepared_at,history_offset,stage) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                            (token, job['id'], job['version'], job['title'], job['group'], job['message'], digest(job['message']), json.dumps(identity), time.time(), Path(identity['history']).stat().st_size, 'prepared'))
+            self.db.commit()
+        except sqlite3.IntegrityError:
+            self.db.rollback()
+            current = self.current(job)
+            if current and current['stage'] == 'prepared' and current['message_hash'] == digest(job['message']) and same_session(identity,json.loads(current['identity'])):
+                return
+            raise ValueError('Prenotazione Claude già presente: nessun duplicato') from None
 
     def begin_send(self, job):
         row = self.current(job)
@@ -262,9 +273,12 @@ class Delivery:
         identity = locate(job)
         if not same_session(identity, json.loads(row['identity'])):
             raise ValueError('Identità Claude cambiata prima dell’invio')
-        self.db.execute('UPDATE claude_timer_deliveries SET send_started=?,history_offset=?,stage=?,identity=? WHERE token=?',
+        updated = self.db.execute("UPDATE claude_timer_deliveries SET send_started=?,history_offset=?,stage=?,identity=? WHERE token=? AND stage='prepared' AND send_started IS NULL",
                         (time.time(), Path(identity['history']).stat().st_size, 'sending', json.dumps(identity), row['token']))
         self.db.commit()
+        if updated.rowcount != 1:
+            raise ValueError('Invio Claude già preso in carico: nessun secondo clic')
+        self.claimed_token = row['token']
         return True
 
     def reconcile(self, job, state):
@@ -394,11 +408,12 @@ class Delivery:
 
     def cancel_before_send(self, job):
         row = self.current(job)
-        if row and row['stage'] in {'prepared', 'sending'}:
+        if row and row['stage'] == 'sending' and row['token'] == self.claimed_token:
             # Called only before Invoke. Keep the owned preparation reusable:
             # typing during validation must not turn our draft into a foreign one.
-            self.db.execute("UPDATE claude_timer_deliveries SET stage='prepared',send_started=NULL WHERE token=?", (row['token'],))
+            self.db.execute("UPDATE claude_timer_deliveries SET stage='prepared',send_started=NULL WHERE token=? AND stage='sending'", (row['token'],))
             self.db.commit()
+        self.claimed_token = None
 
     def cleanup_done(self, job, action):
         if action not in {'draft_cleared', 'draft_preserved'}:

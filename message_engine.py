@@ -45,6 +45,15 @@ def validate_job(job):
         raise ValueError("Identificativo della programmazione mancante")
 
 
+def current_job_matches(job):
+    from chat_identity import key
+    current=next((item for item in load_jobs() if item.get('id')==job['id']),None)
+    fields=('version','message','app','title','group','send_when_active','send_when_present')
+    return bool(current and current.get('enabled') and key(current)==key(job)
+                and all(current.get(field)==job.get(field) for field in fields)
+                and current.get('transport','desktop')=='desktop')
+
+
 class TimerStore:
     def __init__(self, path):
         Path(path).parent.mkdir(exist_ok=True)
@@ -53,6 +62,9 @@ class TimerStore:
         self.db.execute("CREATE TABLE IF NOT EXISTS timers (id TEXT PRIMARY KEY, version TEXT, due REAL, phase TEXT, last_sent REAL, detail TEXT)")
         self.db.execute("CREATE TABLE IF NOT EXISTS message_events (seq INTEGER PRIMARY KEY, at REAL, job_id TEXT, title TEXT, event TEXT, detail TEXT)")
         self.db.execute("CREATE TABLE IF NOT EXISTS message_retry (job_id TEXT PRIMARY KEY, version TEXT, retry_at REAL)")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS message_failures
+            (job_id TEXT PRIMARY KEY, version TEXT, error TEXT, first_at REAL,
+             last_at REAL, attempts INTEGER, resolved_at REAL)""")
         self.db.commit()
 
     def prepare(self, job, now):
@@ -88,7 +100,7 @@ class TimerStore:
         if outcome == 'confirmed':
             clauses.append("event='Consegnato con ricevuta'")
         elif outcome == 'attention':
-            clauses.append("lower(event) LIKE '%verific%' AND event!='Consegnato con ricevuta'")
+            clauses.append("(lower(event) LIKE '%verific%' OR event='Errore invio') AND event!='Consegnato con ricevuta'")
         elif outcome == 'waiting':
             clauses.append("event IN ('Programmato','In attesa','Preparazione','In pausa','Ripreso')")
         where = ' WHERE ' + ' AND '.join(clauses) if clauses else ''
@@ -121,8 +133,32 @@ class TimerStore:
         row = self.db.execute("SELECT retry_at FROM message_retry WHERE job_id=? AND version=?", (job['id'], job['version'])).fetchone()
         return row is not None and row[0] > now
 
+    def fail(self, job, error, now):
+        previous = self.db.execute('SELECT * FROM message_failures WHERE job_id=?', (job['id'],)).fetchone()
+        same = previous and previous['version'] == job['version'] and previous['resolved_at'] is None
+        attempts = previous['attempts'] + 1 if same else 1
+        first = previous['first_at'] if same else now
+        delay = min(120, 5 * 2 ** min(attempts - 1, 5))
+        with self.db:
+            self.db.execute('INSERT OR REPLACE INTO message_failures VALUES (?,?,?,?,?,?,NULL)',
+                            (job['id'], job['version'], error, first, now, attempts))
+            self.db.execute('INSERT OR REPLACE INTO message_retry VALUES (?,?,?)', (job['id'],job['version'],now+delay))
+            if not same or previous['error'] != error:
+                self.db.execute('INSERT INTO message_events(at,job_id,title,event,detail) VALUES (?,?,?,?,?)',
+                                (now,job['id'],job['title'],'Errore invio',error))
+
+    def recover(self, job, now):
+        self.db.execute('UPDATE message_failures SET resolved_at=? WHERE job_id=? AND version=? AND resolved_at IS NULL',
+                        (now,job['id'],job['version']))
+        self.db.commit()
+
     def rows(self):
         rows = [dict(r) for r in self.db.execute("SELECT * FROM timers")]
+        for failure in self.db.execute('SELECT * FROM message_failures WHERE resolved_at IS NULL'):
+            for row in rows:
+                if row['id'] == failure['job_id'] and row['version'] == failure['version']:
+                    row.update(delivery_error=failure['error'], error_since=failure['first_at'],
+                               error_at=failure['last_at'], error_attempts=failure['attempts'])
         exists = self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='local_codex_deliveries'").fetchone()
         if exists:
             pending = self.db.execute("""SELECT c.job_id,c.version,c.reserved_at,l.stage
@@ -141,6 +177,25 @@ class TimerStore:
         return rows
 
 
+def run_cycle(config, store, now=None, adapter=None, reconcile_only=False):
+    """Persist an exact job's failure; never reinterpret it as a successful send."""
+    store.active_job = None
+    try:
+        result = tick(config, store, now=now, adapter=adapter, reconcile_only=reconcile_only)
+    except Exception as exc:
+        result = {'action':'error', 'error':f'{type(exc).__name__}: {exc}'}
+    job = store.active_job
+    at = time.time() if now is None else now
+    if job:
+        try:
+            if result.get('error') and not result.get('recorded'):
+                result['job'] = job['id']
+                store.fail(job,result['error'],at)
+        except (sqlite3.Error, OSError, KeyError) as exc:
+            result['persistence_error'] = f'{type(exc).__name__}: {exc}'
+    return result
+
+
 def tick(config, store, now=None, adapter=None, reconcile_only=False):
     from chat_desktop import step
     from automation_policy import action_block_reason, live_block_reason
@@ -151,6 +206,7 @@ def tick(config, store, now=None, adapter=None, reconcile_only=False):
     now = time.time() if real_clock else now
     adapter = adapter or step
     jobs = load_jobs()
+    pending_result = None
     for job in jobs:
         if not job.get("enabled"):
             continue
@@ -160,7 +216,10 @@ def tick(config, store, now=None, adapter=None, reconcile_only=False):
             continue  # An app connector owns this timer; never duplicate via UI.
         if job["app"] in config.get("temporarily_unavailable_apps", []):
             continue
+        store.active_job = job
         state = store.prepare(job, now)
+        if state['phase'] != 'uncertain' and store.retry_pending(job,now):
+            continue
         claude = None
         native_config = config
         guard = live_block_reason
@@ -170,9 +229,18 @@ def tick(config, store, now=None, adapter=None, reconcile_only=False):
             native_config = native_delivery_config(lambda: config, app='claude', allow_present=job.get('send_when_present', True))
             guard = lambda: action_block_reason(native_delivery_config(app='claude', allow_present=job.get('send_when_present', True)))
             claude = Delivery(store, ROOT)
-            reconciled = claude.reconcile(job, state)
+            try:
+                reconciled = claude.reconcile(job, state)
+            except (OSError,ValueError) as exc:
+                error=f'Lettura ricevuta: {type(exc).__name__}: {exc}'
+                store.fail(job,error,now)
+                pending_result = pending_result or {'action':'error','job':job['id'],'error':error,'recorded':True}
+                continue
+            if reconciled and reconciled['action'] == 'receipt_confirmed':
+                store.recover(job,now)
             if reconciled and reconciled['action'] in {'awaiting_receipt', 'modified_submission'}:
-                return {**reconciled, 'job': job['id']}
+                pending_result = pending_result or {**reconciled, 'job': job['id']}
+                continue
             if reconcile_only:
                 if reconciled:
                     return {**reconciled, 'job': job['id']}
@@ -180,8 +248,10 @@ def tick(config, store, now=None, adapter=None, reconcile_only=False):
             if claude.cleanup_needed(job):
                 blocked = action_block_reason(native_config)
                 if blocked:
-                    return {'action': 'receipt_confirmed' if reconciled else 'none', 'job': job['id'], 'reason': blocked}
+                    pending_result = pending_result or {'action': 'receipt_confirmed' if reconciled else 'none', 'job': job['id'], 'reason': blocked}
+                    continue
                 cleanup = adapter(native_config, job, {'cleanup': True, 'archive': lambda value: claude.archive(job, value)}, live_guard=guard)
+                store.recover(job,now)
                 claude.cleanup_done(job, cleanup['action'])
                 return {**cleanup, 'job': job['id']}
             # Receipt confirmation can change the deadline and phase.
@@ -202,7 +272,8 @@ def tick(config, store, now=None, adapter=None, reconcile_only=False):
         if blocked:
             store.update(job, state["phase"], blocked)
             store.defer(job, now)
-            return {"action": "none", "job": job["id"], "reason": blocked}
+            pending_result = pending_result or {"action": "none", "job": job["id"], "reason": blocked}
+            continue
         delivery = {"drafted": state["phase"] == "drafted"}
         if claude:
             delivery['own_draft'] = lambda: claude.prepare(job)
@@ -210,6 +281,7 @@ def tick(config, store, now=None, adapter=None, reconcile_only=False):
             delivery['can_redraft'] = bool(reservation and reservation['stage'] == 'prepared' and reservation['send_started'] is None)
             delivery['drafted'] = delivery['drafted'] or delivery['can_redraft']
         result = adapter(native_config, job, delivery, live_guard=guard) if claude else adapter(config, job, delivery)
+        if not result.get('error'):store.recover(job,now)
         action = result.get("action")
         if action == "drafted":
             store.update(job, "drafted", "Messaggio preparato: invio al prossimo controllo")
@@ -227,8 +299,7 @@ def tick(config, store, now=None, adapter=None, reconcile_only=False):
                 store.defer(job, now)
                 return {"action": "none", "job": job["id"], "reason": blocked}
             # A pause/edit between preparation and Send takes effect immediately.
-            current = next((j for j in load_jobs() if j["id"] == job["id"]), None)
-            if current is None or not current.get("enabled") or any(current.get(k) != job.get(k) for k in ['version', 'message', 'app', 'title', 'group', 'send_when_active', 'send_when_present']) or current.get("transport", "desktop") != "desktop":
+            if not current_job_matches(job):
                 return {"action": "cancelled", "job": job["id"]}
             if not validate_draft():
                 if claude:
@@ -236,15 +307,22 @@ def tick(config, store, now=None, adapter=None, reconcile_only=False):
                 store.update(job, 'idle', 'Bozza modificata prima dell’invio: conservata nel campo')
                 store.defer(job, now)
                 return {'action': 'draft_preserved', 'job': job['id']}
+            pattern=button.GetInvokePattern()
             store.update(job, "uncertain", "Invio iniziato: verifica necessaria se il processo si interrompe")
             if claude:
                 claude.begin_send(job)
-                if guard() or not validate_draft():
+                try:
+                    cancelled=guard() or not current_job_matches(job) or not validate_draft()
+                except Exception:
+                    claude.cancel_before_send(job)
+                    store.update(job,'drafted','Verifica interrotta prima del clic: bozza conservata')
+                    raise
+                if cancelled:
                     claude.cancel_before_send(job)
                     store.update(job, 'idle', 'Invio annullato prima del pulsante: bozza conservata')
                     store.defer(job, now)
                     return {'action': 'draft_preserved', 'job': job['id']}
-            button.GetInvokePattern().Invoke()
+            pattern.Invoke()
             if claude:
                 return {'action': 'awaiting_receipt', 'job': job['id'], 'reason': 'Invio avviato; attendo il messaggio utente nella cronologia Claude'}
             sent = time.time() if real_clock else now
@@ -260,4 +338,4 @@ def tick(config, store, now=None, adapter=None, reconcile_only=False):
             store.update(job, state["phase"], result.get("reason", "Apertura della chat"))
             store.defer(job, now)
         return {**result, "job": job["id"]}
-    return {"action": "idle"}
+    return pending_result or {"action": "idle"}

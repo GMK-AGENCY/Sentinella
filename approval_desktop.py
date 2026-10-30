@@ -15,7 +15,7 @@ from approval_policy import ALWAYS, ONCE, DENY, normalize, is_inside, pick_butto
 from question_desktop import walk, native_controls, desktop_is_unlocked, chat_content_available
 from automation_policy import (app_enabled, target_titles, action_block_reason, live_block_reason,
                                command_approval_enabled, approval_actions_enabled, load_config)
-from desktop_identity import app_window_handles
+from desktop_identity import app_window_handles,native_document
 
 from runtime_paths import data_root
 ROOT = data_root()
@@ -31,22 +31,7 @@ def command_surface_verified(control, app, simulation=False):
     """Do not approve a web page embedded in an assistant's browser preview."""
     if simulation:
         return True
-    from chat_desktop import document_sessions
-    node = control
-    for _ in range(24):
-        if node is None:
-            return False
-        if node.ControlTypeName == "DocumentControl":
-            if app == "claude":
-                return bool(document_sessions([node]))
-            # Codex consent forms must belong to its application document,
-            # not to a nested web document.
-            try:
-                return node.GetValuePattern().Value == "app://-/index.html"
-            except Exception:
-                return False
-        node = node.GetParentControl()
-    return False
+    return native_document(control,app) is not None
 
 
 def invoke_record(record, app):
@@ -83,7 +68,7 @@ def invoke_record(record, app):
     current = load_config()
     if not record_enabled(current, app, record):
         return False
-    if record["summary"].get("request_type") == "command" and not command_surface_verified(record["control"], app, current.get("simulation_window_handle")):
+    if not command_surface_verified(record["control"], app, current.get("simulation_window_handle")):
         return False
     refreshed = inspect_dialog(record["control"], record["roots"], time.monotonic() + 2, record.get("prefer_always", False), command_approval_enabled(current, app))
     if refreshed.get("fingerprint") != key:
@@ -136,18 +121,24 @@ def scan(config, app_name, inspect_only=False):
     commands = command_approval_enabled(config, app_name)
     def inspect_card(control):
         record = inspect_dialog(control, roots, deadline, config.get("prefer_always", False), commands)
-        if record["summary"].get("request_type") == "command" and record.get("button"):
+        if record.get("button"):
             if not command_surface_verified(control, app_name, config.get("simulation_window_handle")):
                 record.pop("button", None)
                 record["summary"].update(eligible=False, manual_required=True, reason="Richiesta non associata al documento nativo della chat")
         return record
     result = {"app": app_name, "windows": len(windows), "dialogs": [], "invoked": False, "enabled": approval_actions_enabled(config, app_name)}
+    result['usable_windows'] = 0
     for window in windows:
         # Claude renders real tool approvals inline, without a dialog role.
         # Anchor on actual consent controls, then inspect their smallest card.
-        controls = native_controls(window)
+        try:
+            controls = native_controls(window)
+        except Exception as exc:
+            result.update(partial=True, partial_reason=f'Una finestra non è leggibile: {type(exc).__name__}')
+            continue
         if not config.get("simulation_window_handle") and not chat_content_available(controls):
-            return {**result, "available": False, "reason": f"Interfaccia {app_name} temporaneamente non disponibile"}
+            continue
+        result['usable_windows'] += 1
         allowed_titles = target_titles(config, app_name, "approvals")
         if allowed_titles:
             titles = [c.Name.removesuffix(" - Claude Code") for c in controls if c.ControlTypeName == "DocumentControl" and c.Name]
@@ -220,6 +211,8 @@ def scan(config, app_name, inspect_only=False):
                             return result
             except Exception as exc:
                 result["last_error"] = f"{type(exc).__name__}: {exc}"
+    if windows and not result['usable_windows']:
+        result.update(available=False, reason=f'Interfaccia {app_name} temporaneamente non disponibile')
     return result
 
 
