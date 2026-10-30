@@ -69,6 +69,31 @@ class SendDialogTests(unittest.TestCase):
                 self.assertIsNone(question_card([edit]))
                 walk.assert_not_called()
 
+    def test_empty_question_is_detected_even_while_send_is_disabled(self):
+        parent=Mock();parent.GetRuntimeId.return_value=[1]
+        edit=Mock(ControlTypeName='EditControl',Name='Oppure scrivi una risposta personalizzata',IsEnabled=True,IsOffscreen=False)
+        edit.GetRuntimeId.return_value=[2];edit.GetParentControl.return_value=parent
+        send=Mock(ControlTypeName='ButtonControl',Name='Invia',IsEnabled=False,IsOffscreen=False)
+        skip=Mock(ControlTypeName='ButtonControl',Name='Salta',IsEnabled=True,IsOffscreen=False)
+        heading=Mock(ControlTypeName='TextControl',Name='Domanda');heading.GetRuntimeId.return_value=[3]
+        question=Mock(ControlTypeName='TextControl',Name='Riepilogo breve o dettagliato?');question.GetRuntimeId.return_value=[4]
+        local=[edit,send,skip,heading,question]
+        with patch('question_desktop.walk',side_effect=lambda node,**_: [edit] if node is edit else local):
+            card=question_card([edit])
+        self.assertIsNotNone(card)
+        self.assertIs(card['send'],send)
+        self.assertEqual(card['text'],'Riepilogo breve o dettagliato?')
+        send.GetInvokePattern.assert_not_called()
+
+    def test_disabled_send_alone_does_not_make_a_consent_card_a_question(self):
+        parent=Mock();parent.GetParentControl.return_value=None
+        edit=Mock(ControlTypeName='EditControl',Name='Rispondi',IsEnabled=True,IsOffscreen=False)
+        edit.GetRuntimeId.return_value=[2];edit.GetParentControl.return_value=parent
+        send=Mock(ControlTypeName='ButtonControl',Name='Invia',IsEnabled=False,IsOffscreen=False)
+        heading=Mock(ControlTypeName='TextControl',Name='Domanda');heading.GetRuntimeId.return_value=[3]
+        with patch('question_desktop.walk',side_effect=lambda node,**_: [edit] if node is edit else [edit,send,heading]):
+            self.assertIsNone(question_card([edit]))
+
     def test_two_periodic_deliveries_ignore_inactive_panels_but_preserve_foreign_draft(self):
         with tempfile.TemporaryDirectory() as folder, ExitStack() as cleanup:
             root = Path(folder); history = root/'history.jsonl'; history.write_text('')

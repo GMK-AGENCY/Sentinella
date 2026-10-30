@@ -144,8 +144,11 @@ def question_card(controls):
                 local = walk(parent, limit=100, seconds=1, max_depth=10)
                 if len(local) >= 100:
                     break
+                # Empty question cards disable Send until an answer is typed.
+                # Recognize their structure now; inspect() checks IsEnabled
+                # again before invoking the freshly observed Send control.
                 buttons = [c for c in local if c.ControlTypeName == "ButtonControl"
-                           and c.IsOffscreen is not True and c.IsEnabled is not False]
+                           and c.IsOffscreen is not True]
                 labels = {normalize(c.Name) for c in buttons}
                 edit_nodes = {tuple(c.GetRuntimeId()) for c in walk(edit, limit=30, seconds=0.5, max_depth=6)}
                 names = [c.Name for c in local if c.ControlTypeName == "TextControl" and c.Name and tuple(c.GetRuntimeId()) not in edit_nodes]

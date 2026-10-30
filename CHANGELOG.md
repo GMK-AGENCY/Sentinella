@@ -1,5 +1,10 @@
 # Modifiche
 
+## 0.2.17
+
+- Le domande Codex vengono riconosciute anche quando il pulsante Invia è inizialmente disabilitato perché manca ancora il testo. Sentinella può compilare il messaggio di assenza e inviarlo solo dopo aver verificato che il pulsante sia abilitato.
+- Restano esclusi campi disabilitati o nascosti e schede prive della struttura della domanda. Aggiunti controlli di regressione sul riconoscimento iniziale; verificata anche una risposta reale del programma nella chat di collaudo.
+
 ## 0.2.16
 
 - Corretto il riconoscimento con più finestre Claude: destinatario individuato tramite ID e campo di composizione nativo, escludendo pannelli accessori e pagine incorporate. Domande e consensi sono limitati al documento nativo verificato.
