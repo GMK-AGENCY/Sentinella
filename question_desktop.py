@@ -215,16 +215,18 @@ def inspect(config, app_name, target_title=None, act=False):
             continue
         if not chat_content_available(controls):
             continue
+        verified_documents = [c for c in controls if c.ControlTypeName == 'DocumentControl'
+                              and native_document(c, app_name) is not None]
+        if not verified_documents:
+            if app_name == 'claude' and any(c.ControlTypeName == 'ButtonControl' and c.Name in
+                    {'Apri nella finestra principale', 'Open in main window'} for c in controls):
+                result.update(partial=True, partial_reason='Chat in finestra separata non identificata: aprila nella finestra principale')
+            continue  # Empty new-session/accessory windows are not chat results.
         result['usable_windows'] += 1
         buttons = [c for c in controls if c.ControlTypeName == "ButtonControl"]
         edits = [c for c in controls if c.ControlTypeName == "EditControl"]
-        result["documents"] = [c.Name[:150] for c in controls if c.ControlTypeName == "DocumentControl"]
+        result["documents"] = [c.Name for c in verified_documents]
         result["current_title"] = next((name.removesuffix(" - Claude Code") for name in reversed(result["documents"]) if name), "")
-        if app_name == "claude":
-            from chat_desktop import document_sessions
-            native = document_sessions(controls)
-            if native:
-                result["current_title"] = native[-1][0].Name.removesuffix(" - Claude Code")
         result["headings"] = [c.Name[:200] for c in controls if c.AriaRole == "heading" or c.ControlTypeName == "HeaderControl"]
         result["edit_labels"] = [c.Name[:150] for c in edits]
         result["question_buttons"] = [c.Name for c in buttons if normalize(c.Name) in {"rispondi alla domanda", "answer question", "answer the question"}]
@@ -233,6 +235,8 @@ def inspect(config, app_name, target_title=None, act=False):
         for c in controls:
             try:
                 if normalize(c.Name) not in {"richiede input", "needs input", "requires input", "in attesa di input", "ha fatto una domanda"}:
+                    continue
+                if native_document(c, app_name) is None:
                     continue
                 parent = c.GetParentControl()
                 for _ in range(6):
@@ -244,13 +248,13 @@ def inspect(config, app_name, target_title=None, act=False):
                     parent = parent.GetParentControl()
             except Exception:
                 continue
-        result["pending_chats"] = list(dict.fromkeys(pending))
+        result["pending_chats"] = list(dict.fromkeys([*result.get('pending_chats', []), *pending]))
         if app_name == "claude":
             result["blocked_chat_buttons"] = [c.Name for c in buttons if c.Name.startswith("Bloccata ") and "Ha fatto una domanda" in c.Name]
             result["pending_chats"].extend(name.removeprefix("Bloccata ").split(" Ha fatto una domanda")[0] for name in result["blocked_chat_buttons"])
         # A target supplied by a trusted notification is selected through the native sidebar.
-        if target_title and target_title not in result["documents"] + result["headings"]:
-            matches = [c for c in buttons if c.IsEnabled and (c.Name == target_title or (app_name == "claude" and (c.Name.startswith(target_title + " Avviata da ") or c.Name.startswith("Bloccata " + target_title + " Ha fatto una domanda"))))]
+        if target_title and target_title != result['current_title']:
+            matches = [c for c in buttons if c.IsEnabled and (c.Name == target_title or (app_name == "claude" and (c.Name.startswith(target_title + " Avviata da ") or c.Name.startswith("Bloccata " + target_title + " Ha fatto una domanda")))) and native_document(c, app_name) is not None]
             if matches and act and config.get("away_mode"):
                 blocked = live_block_reason()
                 if blocked:
@@ -260,21 +264,20 @@ def inspect(config, app_name, target_title=None, act=False):
                 return result
             result["reason"] = "Chat richiesta non aperta: nessuna risposta inviata"
             continue
-        documents=[c for c in controls if c.ControlTypeName=='DocumentControl' and native_document(c,app_name) is not None]
+        documents = verified_documents
         if target_title:
             documents=[c for c in documents if c.Name.removesuffix(' - Claude Code')==target_title] if app_name=='claude' else documents
         if len(documents)!=1:
             result['reason']='Documento della chat non univoco o non disponibile'
-            if app_name=='claude' and any(c.ControlTypeName=='ButtonControl' and c.Name in
-                    {'Apri nella finestra principale','Open in main window'} for c in controls):
-                result.update(partial=True,partial_reason='Chat in finestra separata non identificata: aprila nella finestra principale')
+            result.update(partial=True, partial_reason='Documento della chat non univoco o non disponibile')
             continue
+        result.pop('reason', None)
         controls=document_controls(controls,documents[0])
         buttons=[c for c in controls if c.ControlTypeName=='ButtonControl']
         edits=[c for c in controls if c.ControlTypeName=='EditControl']
         card = question_card(controls)
         plain_title = target_title or result["current_title"]
-        if card is None and app_name == "claude" and plain_title in result["headings"] and plain_claude_candidate(controls, plain_title, allowed_titles, config.get("away_reply", "")):
+        if card is None and app_name == "claude" and any(c.Name==plain_title and (c.AriaRole=='heading' or c.ControlTypeName=='HeaderControl') for c in controls) and plain_claude_candidate(controls, plain_title, allowed_titles, config.get("away_reply", "")):
             prompts = [c for c in edits if c.Name == "Prompt" and c.IsEnabled]
             assistant_heads = [c for c in controls if c.AriaRole == "heading" and c.Name.startswith("Claude ha risposto:")]
             if len(prompts) == 1 and assistant_heads:
@@ -351,6 +354,8 @@ def inspect(config, app_name, target_title=None, act=False):
                 return {**result, "reason": blocked}
             opens[-1].GetInvokePattern().Invoke()
             result["action"] = "opened_question"
+            return result
+        if target_title:
             return result
     if windows and not result['usable_windows']:
         result.update(available=False, reason=f'Interfaccia {app_name} temporaneamente non disponibile')
