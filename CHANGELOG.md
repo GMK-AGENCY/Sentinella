@@ -1,5 +1,12 @@
 # Modifiche
 
+## 0.2.18 — in collaudo
+
+- Identificazione delle finestre Claude separate tramite l'ID nel registro dei popout dell'applicazione, con verifica del processo, del documento radice e del riquadro nativo. Nessun riconoscimento basato sul solo nome.
+- Rifiuto di documenti incorporati, finestre duplicate, geometrie non corrispondenti e configurazioni non qualificate. Il caso supportato è attualmente la scala dello schermo al 100%.
+- Una finestra separata non identificabile è dichiarata come controllo parziale e non riceve azioni automatiche.
+- Verificata una risposta automatica reale nella chat Claude di prova in finestra separata; collaudo di rinomina ancora da completare prima della pubblicazione.
+
 ## 0.2.17
 
 - Le domande Codex vengono riconosciute anche quando il pulsante Invia è inizialmente disabilitato perché manca ancora il testo. Sentinella può compilare il messaggio di assenza e inviarlo solo dopo aver verificato che il pulsante sia abilitato.

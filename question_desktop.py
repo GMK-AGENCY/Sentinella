@@ -265,6 +265,9 @@ def inspect(config, app_name, target_title=None, act=False):
             documents=[c for c in documents if c.Name.removesuffix(' - Claude Code')==target_title] if app_name=='claude' else documents
         if len(documents)!=1:
             result['reason']='Documento della chat non univoco o non disponibile'
+            if app_name=='claude' and any(c.ControlTypeName=='ButtonControl' and c.Name in
+                    {'Apri nella finestra principale','Open in main window'} for c in controls):
+                result.update(partial=True,partial_reason='Chat in finestra separata non identificata: aprila nella finestra principale')
             continue
         controls=document_controls(controls,documents[0])
         buttons=[c for c in controls if c.ControlTypeName=='ButtonControl']

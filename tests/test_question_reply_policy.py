@@ -81,3 +81,15 @@ class QuestionReplyPolicyTests(unittest.TestCase):
             result = inspect(config, 'claude', 'Another chat', act=False)
         windows.assert_not_called()
         self.assertIn('esclusa', result['reason'])
+
+    def test_unverified_popout_is_partial_and_never_receives_an_answer(self):
+        document=Mock(ControlTypeName='DocumentControl',Name='Test',AriaRole='')
+        document.GetValuePattern.return_value.Value='about:blank';document.GetParentControl.return_value=None
+        button=Mock(ControlTypeName='ButtonControl',Name='Apri nella finestra principale',AriaRole='')
+        config={'away_mode':True,'apps':{'claude':{'process_path':'fixture.exe'}}}
+        with patch('question_desktop.desktop_is_unlocked',return_value=True),patch('question_desktop.app_window_handles',return_value=[1]), \
+             patch('question_desktop.native_controls',return_value=[document,button]),patch('uiautomation.ControlFromHandle',return_value=Mock()):
+            result=inspect(config,'claude')
+        self.assertTrue(result['partial'])
+        self.assertIn('finestra principale',result['partial_reason'])
+        button.GetInvokePattern.assert_not_called()

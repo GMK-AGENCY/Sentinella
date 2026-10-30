@@ -11,7 +11,11 @@ def claude_document_session(control):
     import uuid
     if control.ControlTypeName != 'DocumentControl':return None
     try:
-        url=urlparse(control.GetValuePattern().Value)
+        value=control.GetValuePattern().Value
+        if value=='about:blank':
+            from claude_popouts import session_for_document
+            return session_for_document(control)
+        url=urlparse(value)
         if url.scheme!='https' or url.hostname!='claude.ai' or not url.path.startswith('/epitaxy/local_'):return None
         value=url.path.removeprefix('/epitaxy/local_')
         return value if str(uuid.UUID(value))==value else None
