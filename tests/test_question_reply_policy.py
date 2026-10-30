@@ -81,3 +81,69 @@ class QuestionReplyPolicyTests(unittest.TestCase):
             result = inspect(config, 'claude', 'Another chat', act=False)
         windows.assert_not_called()
         self.assertIn('esclusa', result['reason'])
+
+    def test_unverified_popout_is_partial_and_never_receives_an_answer(self):
+        document=Mock(ControlTypeName='DocumentControl',Name='Test',AriaRole='')
+        document.GetValuePattern.return_value.Value='about:blank';document.GetParentControl.return_value=None
+        button=Mock(ControlTypeName='ButtonControl',Name='Apri nella finestra principale',AriaRole='')
+        config={'away_mode':True,'apps':{'claude':{'process_path':'fixture.exe'}}}
+        with patch('question_desktop.desktop_is_unlocked',return_value=True),patch('question_desktop.app_window_handles',return_value=[1]), \
+             patch('question_desktop.native_controls',return_value=[document,button]),patch('uiautomation.ControlFromHandle',return_value=Mock()):
+            result=inspect(config,'claude')
+        self.assertTrue(result['partial'])
+        self.assertIn('finestra principale',result['partial_reason'])
+        button.GetInvokePattern.assert_not_called()
+
+    def test_empty_auxiliary_window_cannot_overwrite_a_verified_chat(self):
+        document = self.claude_document('Verified chat')
+        empty = Mock(ControlTypeName='DocumentControl', Name='Nuova sessione', AriaRole='')
+        empty.GetValuePattern.return_value.Value = 'about:blank'
+        empty.GetParentControl.return_value = None
+        for windows in ([document, empty], [empty, document]):
+            with self.subTest(order=[c.Name for c in windows]):
+                result = self.inspect_windows(windows)
+                self.assertEqual(result['usable_windows'], 1)
+                self.assertEqual(result['current_title'], 'Verified chat')
+                self.assertNotIn('reason', result)
+                self.assertNotIn('partial', result)
+
+    def test_target_chat_result_keeps_full_title_and_ignores_other_windows(self):
+        title = 'A long native chat title ' + 'x' * 220
+        target = self.claude_document(title)
+        other = self.claude_document('Other chat')
+        for windows in ([target, other], [other, target]):
+            with self.subTest(target_first=windows[0] is target):
+                result = self.inspect_windows(windows, target_title=title)
+                self.assertEqual(result['current_title'], title)
+                self.assertNotIn('reason', result)
+
+    def test_embedded_page_cannot_select_a_chat_through_a_matching_button(self):
+        document = self.claude_document('Current chat')
+        guest = Mock(ControlTypeName='DocumentControl', Name='Guest page', AriaRole='')
+        guest.GetValuePattern.return_value.Value = 'https://example.test'
+        guest.GetParentControl.return_value = document
+        button = Mock(ControlTypeName='ButtonControl', Name='Target chat', AriaRole='', IsEnabled=True)
+        button.GetParentControl.return_value = guest
+        result = self.inspect_windows([document], extras=[guest, button], target_title='Target chat', act=True)
+        self.assertEqual(result['action'], 'none')
+        self.assertIn('non aperta', result['reason'])
+        button.GetInvokePattern.assert_not_called()
+
+    @staticmethod
+    def claude_document(title):
+        document = Mock(ControlTypeName='DocumentControl', Name=title, AriaRole='')
+        document.GetValuePattern.return_value.Value = 'https://claude.ai/epitaxy/local_11111111-2222-4333-8444-555555555555'
+        document.GetRuntimeId.return_value = [id(document)]
+        return document
+
+    @staticmethod
+    def inspect_windows(documents, extras=(), **kwargs):
+        config = {'away_mode': True, 'paused': False, 'idle_seconds_before_actions': 0,
+                  'apps': {'claude': {'process_path': 'fixture.exe', 'questions_enabled': True}}}
+        with patch('question_desktop.desktop_is_unlocked', return_value=True), \
+             patch('question_desktop.app_window_handles', return_value=list(range(len(documents)))), \
+             patch('uiautomation.ControlFromHandle', side_effect=lambda handle: handle), \
+             patch('question_desktop.native_controls', side_effect=lambda handle: [documents[handle], *extras]), \
+             patch('question_desktop.question_card', return_value=None), \
+             patch('question_desktop.live_block_reason', return_value=None):
+            return inspect(config, 'claude', **kwargs)

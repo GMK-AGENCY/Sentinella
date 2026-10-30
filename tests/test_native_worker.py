@@ -104,11 +104,24 @@ class NativeWorkerTests(unittest.TestCase):
             marker = pathlib.Path(folder) / "child.pid"
             child = "import pathlib,os,time;pathlib.Path(%r).write_text(str(os.getpid()));time.sleep(20)" % str(marker)
             parent = "import subprocess,sys,time;subprocess.Popen([sys.executable,'-c',%r]);time.sleep(20)" % child
+            popen = subprocess.Popen
+
+            def launch_ready(*args, **kwargs):
+                process = popen(*args, **kwargs)
+                # Establish the condition under test before allowing cleanup.
+                # Cold Windows interpreter startup can otherwise consume the
+                # entire 1.5-second deadline without creating a grandchild.
+                deadline = time.monotonic() + 2
+                while not marker.exists() and process.poll() is None and time.monotonic() < deadline:
+                    time.sleep(.01)
+                return process
+
             started = time.monotonic()
-            result = run_bounded([sys.executable, "-c", parent], timeout=1.5)
+            with patch('bounded_process.subprocess.Popen', side_effect=launch_ready):
+                result = run_bounded([sys.executable, "-c", parent], timeout=1.5)
             self.assertTrue(result["timed_out"])
             self.assertLess(time.monotonic() - started, 4)
-            self.assertTrue(marker.exists(), "Fixture grandchild must actually have started")
+            self.assertTrue(marker.exists(), f"Fixture grandchild must actually have started: {result}")
             self.assertFalse(psutil.pid_exists(int(marker.read_text())))
             next_result = run_bounded([sys.executable, "-c", "print('next scan works')"], timeout=2)
             self.assertEqual(next_result["stdout"].strip(), "next scan works")

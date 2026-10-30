@@ -28,7 +28,7 @@ Il timer gira nel programma: **non richiede una chat di controllo o automazioni 
 
 Requisiti: Windows 11 a 64 bit e le app desktop che si desidera controllare. **La versione Windows installabile include Python e tutte le dipendenze: non devi installare Python.** Non serve una chiave API OpenAI.
 
-1. Scarica `Sentinella-0.2.17-Windows-x64-Setup.exe` dalla release.
+1. Scarica l'installer Windows dalla release pubblicata; i pacchetti di collaudo non sono release approvate.
 2. Esegui l'installer per il tuo utente: non richiede diritti di amministratore.
 3. Avvia **Sentinella** dal menu Start. Il primo avvio è in pausa.
 4. In **Impostazioni**, premi **Rileva applicazioni**, scegli le funzioni e le cartelle già autorizzate, poi togli la pausa quando sei pronto.
@@ -125,6 +125,8 @@ Gli interruttori Domande e Consensi file valgono per tutte le applicazioni rilev
 Le app devono essere aperte e la sessione Windows sbloccata. Le finestre minimizzate, le chat non esposte dalla barra laterale e i cambiamenti delle interfacce possono impedire la consegna: Sentinella deve mostrare il motivo e non dichiarare un falso successo.
 
 Il riconoscimento considera le finestre della stessa applicazione e cerca il documento della chat tramite ID. I pannelli accessori non sono destinatari. Se lo stesso ID espone più campi di composizione, l'invio si ferma anziché scegliere una finestra arbitraria. Gli errori di lettura e invio restano visibili anche durante l'attesa di inattività; un problema su una programmazione non impedisce di controllare le altre.
+
+Le sessioni Claude in finestra separata possono esporre un documento senza URL identificativo. Il riconoscimento usa allora il registro locale dei popout dell'applicazione, verificando anche processo, documento radice, titolo e geometria: un nome da solo non basta. Questa associazione è attualmente qualificata soltanto con scala dello schermo al 100% (96 DPI). Se l'identità resta incerta, la finestra è segnalata come controllo parziale e va aperta nella finestra principale; non vengono concessi permessi o inviati messaggi a un destinatario non verificato.
 
 Il rilevamento dell'inattività distingue gli eventi di mouse e tastiera marcati da Windows come generati da software. Non registra tasti, testo o coordinate. Se l'osservazione è incompleta, scaduta o non qualificata (per esempio desktop remoto o touch), usa il controllo conservativo di Windows. Dopo un riavvio riparte il periodo di inattività richiesto. **Invia anche mentre uso il PC** rimane un'opzione separata per ogni programmazione: se disattivata, usare mouse o tastiera rinvia correttamente l'invio.
 
