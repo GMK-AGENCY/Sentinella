@@ -8,7 +8,7 @@ from approval_policy import normalize
 from automation_policy import (action_block_reason, live_block_reason, idle_seconds,
                                typing_keys_down, background_navigation_block_reason)
 from question_desktop import walk, native_controls, desktop_is_unlocked, question_card, chat_content_available
-from desktop_identity import app_window_handles,claude_document_session,document_controls,native_document
+from desktop_identity import app_window_handles,claude_document_session,document_controls,native_document,document_title
 
 from runtime_paths import data_root
 ROOT = data_root()
@@ -61,7 +61,7 @@ def snapshot(config, app, job=None):
     if app=='claude':
         bound=[control for control,_ in document_sessions(controls) if control.Name]
         if bound:docs=bound
-    title = docs[-1].Name.removesuffix(" - Claude Code") if docs else ""
+    title = document_title(docs[-1], controls, app) if docs else ""
     return controls, title
 
 

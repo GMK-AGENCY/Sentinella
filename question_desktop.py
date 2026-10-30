@@ -10,7 +10,7 @@ import time
 
 from approval_policy import normalize
 from automation_policy import app_enabled, target_titles, action_block_reason, live_block_reason
-from desktop_identity import app_window_handles, foreground_process_id, native_document, document_controls
+from desktop_identity import app_window_handles, foreground_process_id, native_document, document_controls, document_title
 
 from runtime_paths import data_root
 ROOT = data_root()
@@ -226,7 +226,7 @@ def inspect(config, app_name, target_title=None, act=False):
         buttons = [c for c in controls if c.ControlTypeName == "ButtonControl"]
         edits = [c for c in controls if c.ControlTypeName == "EditControl"]
         result["documents"] = [c.Name for c in verified_documents]
-        result["current_title"] = next((name.removesuffix(" - Claude Code") for name in reversed(result["documents"]) if name), "")
+        result["current_title"] = next((document_title(doc, controls, app_name) for doc in reversed(verified_documents) if doc.Name), "")
         result["headings"] = [c.Name[:200] for c in controls if c.AriaRole == "heading" or c.ControlTypeName == "HeaderControl"]
         result["edit_labels"] = [c.Name[:150] for c in edits]
         result["question_buttons"] = [c.Name for c in buttons if normalize(c.Name) in {"rispondi alla domanda", "answer question", "answer the question"}]
@@ -266,7 +266,7 @@ def inspect(config, app_name, target_title=None, act=False):
             continue
         documents = verified_documents
         if target_title:
-            documents=[c for c in documents if c.Name.removesuffix(' - Claude Code')==target_title] if app_name=='claude' else documents
+            documents=[c for c in documents if document_title(c, controls, app_name)==target_title] if app_name=='claude' else documents
         if len(documents)!=1:
             result['reason']='Documento della chat non univoco o non disponibile'
             result.update(partial=True, partial_reason='Documento della chat non univoco o non disponibile')

@@ -36,6 +36,40 @@ def native_document(control,app):
     return None
 
 
+def document_title(document, controls, app):
+    """Read a renamed Claude label from its native session toolbar.
+
+    Popout window/document names can retain their old value after a rename.
+    This changes only the display label; session identity still comes from ID.
+    """
+    fallback = document.Name.removesuffix(' - Claude Code')
+    if app != 'claude':
+        return fallback
+    titles = []
+    for control in controls:
+        if control.ControlTypeName != 'ButtonControl' or not control.Name.endswith((', rinomina la sessione', ', rename session')):
+            continue
+        owner = native_document(control, app)
+        if owner is None or tuple(owner.GetRuntimeId()) != tuple(document.GetRuntimeId()):
+            continue
+        heading = control.GetParentControl()
+        toolbar = heading.GetParentControl() if heading is not None else None
+        # Claude wraps the heading in an anonymous layout group in popouts.
+        for _ in range(3):
+            if toolbar is None or toolbar.AriaRole == 'toolbar':
+                break
+            if toolbar.ControlTypeName != 'GroupControl' or toolbar.Name:
+                break
+            toolbar = toolbar.GetParentControl()
+        if heading is None or toolbar is None or heading.AriaRole != 'heading' or toolbar.AriaRole != 'toolbar':
+            continue
+        if toolbar.Name not in {'Strumenti della sessione', 'Session tools'}:
+            continue
+        if control.Name in {heading.Name + ', rinomina la sessione', heading.Name + ', rename session'}:
+            titles.append(heading.Name)
+    return titles[0] if len(titles) == 1 else fallback
+
+
 def document_controls(controls,document):
     """One bounded ancestry cache excludes other panes and embedded web views."""
     import time

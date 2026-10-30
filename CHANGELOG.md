@@ -1,12 +1,13 @@
 # Modifiche
 
-## 0.2.18 — in collaudo
+## 0.2.18
 
 - Identificazione delle finestre Claude separate tramite l'ID nel registro dei popout dell'applicazione, con verifica del processo, del documento radice e del riquadro nativo. Nessun riconoscimento basato sul solo nome.
 - Rifiuto di documenti incorporati, finestre duplicate, geometrie non corrispondenti e configurazioni non qualificate. Il caso supportato è attualmente la scala dello schermo al 100%.
 - Una finestra separata non identificabile è dichiarata come controllo parziale e non riceve azioni automatiche.
 - Le finestre vuote non sovrascrivono l'esito del controllo di una chat verificata. Titoli lunghi e ordine delle finestre non alterano la selezione del destinatario; i pulsanti delle pagine incorporate sono esclusi dalla navigazione.
-- Verificata una risposta automatica reale nella chat Claude di prova in finestra separata; collaudo di rinomina ancora da completare prima della pubblicazione.
+- Dopo una rinomina Claude può conservare il vecchio nome del documento: il nome aggiornato viene letto dalla barra nativa della sessione, mantenendo il riconoscimento tramite ID. Le intestazioni dei messaggi e le pagine incorporate non possono sostituirlo.
+- Verificati risposta automatica reale in una finestra Claude separata e riconoscimento dello stesso ID dopo una rinomina effettiva. Verificato anche il percorso completo del consenso nella chat desktop Codex: una sola attivazione di Sentinella, scrittura del file e controllo dei byte. Due collaudi aggiuntivi del protocollo Codex sono eseguiti in sessioni temporanee senza finestre.
 
 ## 0.2.17
 

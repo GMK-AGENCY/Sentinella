@@ -3,11 +3,43 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock,patch
 from claude_popouts import match_session,root_window,session_for_document,visible_frame
+from desktop_identity import document_title
 
 SID='11111111-2222-4333-8444-555555555555'
 
 
 class PopoutTests(unittest.TestCase):
+    @staticmethod
+    def renamed_toolbar():
+        document=Mock(ControlTypeName='DocumentControl',Name='Old name')
+        document.GetValuePattern.return_value.Value='https://claude.ai/epitaxy/local_'+SID
+        document.GetRuntimeId.return_value=[1]
+        toolbar=Mock(ControlTypeName='ToolBarControl',Name='Strumenti della sessione',AriaRole='toolbar')
+        toolbar.GetParentControl.return_value=document
+        layout=Mock(ControlTypeName='GroupControl',Name='',AriaRole='group')
+        layout.GetParentControl.return_value=toolbar
+        heading=Mock(ControlTypeName='TextControl',Name='New name',AriaRole='heading')
+        heading.GetParentControl.return_value=layout
+        button=Mock(ControlTypeName='ButtonControl',Name='New name, rinomina la sessione')
+        button.GetParentControl.return_value=heading
+        return document,toolbar,button
+
+    def test_renamed_label_uses_native_session_toolbar_even_when_document_name_is_stale(self):
+        document,toolbar,button=self.renamed_toolbar()
+        self.assertEqual(document_title(document,[button],'claude'),'New name')
+        self.assertEqual(document_title(document,[button],'codex'),'Old name')
+        self.assertEqual(document_title(document,[button,button],'claude'),'Old name')
+
+    def test_message_toolbar_and_embedded_page_cannot_supply_a_session_label(self):
+        document,toolbar,button=self.renamed_toolbar()
+        toolbar.Name='Azioni messaggio'
+        self.assertEqual(document_title(document,[button],'claude'),'Old name')
+        toolbar.Name='Strumenti della sessione'
+        guest=Mock(ControlTypeName='DocumentControl')
+        guest.GetValuePattern.return_value.Value='https://example.test'
+        button.GetParentControl.return_value=guest
+        self.assertEqual(document_title(document,[button],'claude'),'Old name')
+
     def setUp(self):
         self.frame=(-101,200,902,701)
         self.row=dict(sessionId='local_'+SID,sessionType='local',isSsh=False,title='Test',bounds=dict(x=-100,y=200,width=900,height=700))
