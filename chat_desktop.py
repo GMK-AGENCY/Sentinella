@@ -78,7 +78,7 @@ def entries(controls, app):
             elif control.ControlTypeName == "ListItemControl":
                 row, in_row, status = None, True, []
             elif control.ControlTypeName == "ButtonControl" and in_row:
-                if control.Name in {"Archivia chat", "Archive chat"} and row is not None:
+                if control.Name in {"Archivia chat", "Archive chat", "Azioni della chat", "Chat actions"} and row is not None:
                     found.append(({"app": app, "title": row.Name, "group": source, "selector": row.Name, "status": ", ".join(status) or "Disponibile"}, row))
                     row, in_row = None, False
                 elif row is None:
@@ -96,7 +96,7 @@ def entries(controls, app):
         title = None
         local = []
         if app == "codex":
-            # These rows were found through their own native Archive control;
+            # Rows are anchored by their own native Archive/Chat actions control;
             # no scan through the transcript's hundreds of message buttons.
             title = c.Name
             parent = c.GetParentControl()
