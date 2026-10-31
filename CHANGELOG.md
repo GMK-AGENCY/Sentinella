@@ -1,5 +1,11 @@
 # Modifiche
 
+## 0.2.19
+
+- Ripristinato l'elenco delle chat dopo l'aggiornamento di Codex che ha sostituito il controllo «Archivia chat» con «Azioni della chat». Sono supportati entrambi i controlli, in italiano e inglese.
+- Conservati progetto, stato, ID e associazione dei metadati, senza confondere le azioni del progetto con quelle di una chat. Le righe ripetute fra progetto e Recenti restano unificate.
+- Verificata la lettura dell'elenco reale e il ritorno delle chat nel filtro «Ultime 24 ore»; aggiunta una regressione per la nuova struttura della barra laterale.
+
 ## 0.2.18
 
 - Identificazione delle finestre Claude separate tramite l'ID nel registro dei popout dell'applicazione, con verifica del processo, del documento radice e del riquadro nativo. Nessun riconoscimento basato sul solo nome.

@@ -17,6 +17,22 @@ def row(title, status=""):
 
 
 class InventoryTests(unittest.TestCase):
+    def test_current_codex_chat_actions_replace_archive_without_losing_project_or_status(self):
+        for action in ('Azioni della chat','Chat actions'):
+            with self.subTest(action=action):
+                controls=[Node('ListControl'),Node('ListItemControl','Project'),Node('ButtonControl','Project'),
+                          Node('ButtonControl','Azioni del progetto per Project'),
+                          Node('ListControl','Attività programmate in Project')]
+                updated=row('Chat recente','In elaborazione')
+                updated[-1]=Node('ButtonControl',action)
+                controls+=updated+[Node('ListControl')]+updated
+                result=entries(controls,'codex')
+                self.assertEqual(len(result),1)
+                self.assertEqual(result[0][0]['title'],'Chat recente')
+                self.assertEqual(result[0][0]['group'],'Attività programmate in Project')
+                self.assertEqual(result[0][0]['status'],'In elaborazione')
+                self.assertFalse(result[0][0]['ambiguous'])
+
     def test_claude_pull_request_badges_preserve_exact_title_and_project(self):
         for suffix in (' Aperta · 8 pull request',' Open · 8 pull requests',' Chiuso · 2 pull request',
                        ' In esecuzione Bozza · 2 pull request'):
