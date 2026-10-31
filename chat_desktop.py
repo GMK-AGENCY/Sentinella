@@ -145,6 +145,16 @@ def entries(controls, app):
 
 
 def inventory(config, app):
+    if app == 'codex':
+        from chat_catalog import codex_inventory
+        current, error, native = '', None, []
+        try:
+            controls, current = snapshot(config, app)
+            native = [r for r, _ in entries(controls, app)]
+        except Exception as exc:
+            error = f'Interfaccia Codex non disponibile: {exc}. Elenco letto dall’indice locale; invii da verificare.'
+        rows, warning = codex_inventory(native, error)
+        return {'app':app,'current_title':current,'chats':rows,'metadata_warning':warning,'catalog_source':'local_index'}
     controls, current = snapshot(config, app)
     from chat_catalog import enrich
     rows, warning = enrich([r for r, _ in entries(controls, app)], app)
@@ -279,6 +289,47 @@ def inspect_send_state(config, app):
             'dialogs': dialogs}
 
 
+def message_editors(controls, app):
+    """Prefer the native composer's semantics over its translated placeholder.
+
+    A new label is accepted only for a visible multiline textbox belonging to
+    the native app document, with the Send control in its own bounded subtree.
+    Two candidates remain an error; no first-editor or transcript fallback.
+    """
+    labels = {"Prompt"} if app == "claude" else {"Lavora con Codex", "Ask Codex", "Message Codex"}
+    edits = [c for c in controls if c.ControlTypeName == "EditControl" and c.IsEnabled]
+    known = [c for c in edits if c.Name in labels]
+    if app != 'codex':
+        return known
+    semantic = []
+    for edit in edits:
+        if edit in known:
+            continue
+        try:
+            properties = dict(part.split('=', 1) for part in edit.AriaProperties.split(';') if '=' in part)
+            if (edit.AriaRole != 'textbox' or properties.get('multiline') != 'true'
+                    or properties.get('readonly') == 'true' or edit.IsOffscreen
+                    or native_document(edit, app) is None):
+                continue
+            parent = edit.GetParentControl()
+            for _ in range(5):
+                if parent is None:
+                    break
+                local = walk(parent, limit=130, seconds=.5, max_depth=9)
+                if len(local) >= 130:
+                    break
+                # An empty busy composer shows Stop instead of Send. Stop is
+                # only a structural anchor here and is never invoked.
+                anchors = SEND | {'interrompi','stop','stop response','interrompi risposta'}
+                if any(c.ControlTypeName == 'ButtonControl' and normalize(c.Name) in anchors for c in local):
+                    semantic.append(edit)
+                    break
+                parent = parent.GetParentControl()
+        except (AttributeError, TypeError, ValueError):
+            continue
+    return known + semantic
+
+
 def step(config, job, delivery, live_guard=None):
     app = job["app"]
     live_guard = live_guard or live_block_reason
@@ -311,10 +362,9 @@ def step(config, job, delivery, live_guard=None):
     blocked = send_block_reason(controls)
     if blocked:
         return {**result, "reason": blocked}
-    labels = {"Prompt"} if app == "claude" else {"Lavora con Codex", "Ask Codex", "Message Codex"}
-    edits = [c for c in controls if c.ControlTypeName == "EditControl" and c.Name in labels and c.IsEnabled]
+    edits = message_editors(controls, app)
     if len(edits) != 1:
-        return {**result, "reason": "Campo messaggio non univoco"}
+        return {**result, "reason": f"Invio bloccato: interfaccia {app.title()} non riconosciuta ({len(edits)} campi messaggio compatibili). Nessun messaggio inviato; verifica aggiornamenti di Sentinella."}
     edit = edits[0]
     if job.get('send_when_present', True) and getattr(edit, 'HasKeyboardFocus', False) is True and typing_keys_down():
         return {**result, 'reason': 'Digitazione nel campo messaggio: attendo il rilascio della tastiera'}
@@ -382,7 +432,7 @@ def step(config, job, delivery, live_guard=None):
                     if len(matches)!=1 or matches[0][0]['ambiguous']:return False
                 if send_block_reason(fresh):
                     return False
-                composers = [c for c in fresh if c.ControlTypeName == 'EditControl' and c.Name in labels and c.IsEnabled]
+                composers = message_editors(fresh, app)
                 if len(composers) != 1:
                     return False
                 composer = composers[0]

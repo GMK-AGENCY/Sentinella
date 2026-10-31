@@ -166,6 +166,7 @@ def tick(store=None, bridge=None, now=None, metadata=thread_metadata, observe=ob
                         result = bridge.confirm(pending["token"], f"local_history:{receipt['byte_offset']}:{receipt['record']['payload'].get('id')}", now)
                         db.execute("UPDATE local_codex_deliveries SET stage='confirmed' WHERE token=?", (pending["token"],)); db.commit()
                         audit("confirmed", token=pending["token"], job=job["id"], version=pending["version"], thread_id=pending["thread_id"], status_at_claim=pending["status_at_claim"], receipt_file=str(receipt_path))
+                        store.recover(job, now)
                         return {**result, "token": pending["token"], "receipt_file": str(receipt_path)}
                     db.execute("UPDATE local_codex_deliveries SET scan_offset=? WHERE token=?", (cursor, pending["token"])); db.commit()
                     return {"action": "awaiting_receipt", "token": pending["token"], "job": job["id"]}
@@ -235,8 +236,16 @@ def tick(store=None, bridge=None, now=None, metadata=thread_metadata, observe=ob
                 return {"action": "awaiting_receipt", "job": job["id"], "token": pending["token"]}
             if result.get("reason"):
                 store.update(job, "uncertain", result["reason"])
+                if 'interfaccia' in result['reason'].casefold() and 'non riconosciuta' in result['reason'].casefold():
+                    store.fail(job,result['reason'],now)
             return {**result, "job": job["id"], "token": pending["token"]}
         return {"action": "idle"}
+    except Exception as exc:
+        if selected_job:
+            # Keep the real reservation stage. A failure after Invoke must
+            # reconcile the receipt, never reopen the reservation for retry.
+            store.fail(selected_job,f'{type(exc).__name__}: {exc}',now)
+        raise
     finally:
         if owned:
             store.db.close()
@@ -255,5 +264,11 @@ if __name__ == "__main__":
         print(json.dumps(result, ensure_ascii=True), flush=True)
     except Exception as exc:
         audit("error", error=f"{type(exc).__name__}: {exc}")
+        try:
+            from sentinel_launcher import atomic_json
+            atomic_json(ROOT / 'logs/codex-local-status.json',
+                        {'updated_at':time.time(),'action':'error','error':f'{type(exc).__name__}: {exc}'})
+        except OSError:
+            pass
         print(json.dumps({"action": "error", "error": f"{type(exc).__name__}: {exc}"}), flush=True)
         raise SystemExit(2)

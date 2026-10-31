@@ -29,34 +29,90 @@ def epoch(value):
             return None
 
 
-def codex_metadata(titles, path=None, thread_ids=()):
+def codex_metadata(titles, path=None, thread_ids=(), *, all_chats=False):
     if path is None:
         candidates = list(Path(os.environ.get('CODEX_HOME',Path.home()/'.codex')).glob("state_[0-9]*.sqlite"))
         path = max(candidates, key=lambda p: int(p.stem.split("_")[-1])) if candidates else None
-    if not path or not (titles or thread_ids):
+    if not path or not (titles or thread_ids or all_chats):
+        if all_chats and not path:
+            raise ValueError('Indice locale Codex non disponibile')
         return []
     connection = sqlite3.connect(Path(path).as_uri() + "?mode=ro", uri=True, timeout=0.2)
     try:
         connection.execute("PRAGMA query_only=ON")
         connection.row_factory = sqlite3.Row
+        columns = {row[1] for row in connection.execute('PRAGMA table_info(threads)')}
+        if not {'id','title','archived'} <= columns:
+            raise ValueError('Formato dell’indice Codex non compatibile: aggiorna Sentinella')
+        name = "COALESCE(NULLIF(t.name,''),t.title)" if 'name' in columns else 't.title'
+        has_projects = ('project_id' in columns and
+                        {'id','name'} <= {row[1] for row in connection.execute('PRAGMA table_info(projects)')})
+        project = 'p.name' if has_projects else 'NULL'
+        join = 'LEFT JOIN projects p ON p.id=t.project_id' if has_projects else ''
+        optional = ','.join('t.'+key if key in columns else 'NULL AS '+key
+                            for key in ('cwd','updated_at_ms','updated_at','recency_at_ms','recency_at'))
         slots = ",".join("?" for _ in titles)
         clauses=[];args=[]
         if titles:
-            clauses.append(f'(t.name IN ({slots}) OR t.title IN ({slots}))');args += [*titles,*titles]
+            clauses.append(f'({name} IN ({slots}) OR t.title IN ({slots}))');args += [*titles,*titles]
         if thread_ids:
             clauses.append('t.id IN ('+','.join('?' for _ in thread_ids)+')');args += list(thread_ids)
-        sql = f"""SELECT t.id AS thread_id, COALESCE(NULLIF(t.name,''),t.title) AS title, t.cwd,
-                         t.updated_at_ms, t.updated_at, t.recency_at_ms, t.recency_at,
-                         p.name AS project
-                  FROM threads t LEFT JOIN projects p ON p.id=t.project_id
-                  WHERE t.archived=0 AND ({' OR '.join(clauses)})"""
+        where = '1' if all_chats else ' OR '.join(clauses)
+        source = 't.source' if 'source' in columns else 'NULL'
+        sql = f"""SELECT t.id AS thread_id, {name} AS title, {optional}, {project} AS project, {source} AS source
+                  FROM threads t {join}
+                  WHERE t.archived=0 AND ({where})"""
         result = []
         for row in connection.execute(sql, args):
+            if all_chats:
+                if not row['title'] or not row['title'].strip():
+                    continue
+                try:
+                    origin = json.loads(row['source'] or 'null')
+                except (ValueError, TypeError):
+                    origin = None
+                if isinstance(origin,dict) and 'subagent' in origin:
+                    continue
             dates = [epoch(row[key]) for key in ("updated_at_ms", "updated_at", "recency_at_ms", "recency_at")]
             result.append({"thread_id": row["thread_id"], "title": row["title"], "project": project_name(row["project"] or row["cwd"]), "last_activity_at": max((n for n in dates if n is not None), default=None)})
         return result
     finally:
         connection.close()
+
+
+def codex_inventory(native_rows=(), native_error=None):
+    """List by stable local IDs, independently of sidebar labels/virtualization.
+
+    Local storage is read-only and is not an invocation surface. Native actions
+    must still resolve and revalidate their recipient separately.
+    """
+    warning = native_error
+    try:
+        metadata = codex_metadata(set(), all_chats=True)
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        rows, enrichment_warning = enrich(list(native_rows), 'codex')
+        for row in rows:
+            if not row.get('thread_id'):
+                row.update(ambiguous=True,status='ID non verificato')
+        warning = f'Indice Codex non leggibile: {exc}. Elenco limitato alle chat riconosciute nell’app.'
+        if not rows:
+            raise ValueError(warning) from exc
+        return rows, warning
+    native_rows, enrichment_warning = enrich(list(native_rows), 'codex')
+    observed = {row.get('thread_id'): row for row in native_rows if row.get('thread_id')}
+    rows = []
+    from collections import Counter
+    counts = Counter(item['title'] for item in metadata)
+    for item in metadata:
+        native = observed.get(item['thread_id'], {})
+        rows.append({'app':'codex', 'group':native.get('group',item['project']),
+                     'selector':item['title'], 'status':native.get('status','Stato non rilevato'),
+                     'ambiguous':counts[item['title']]>1, **item, 'session_id':item['thread_id']})
+    # The unified app also shows ChatGPT conversations. They are not local
+    # Codex threads: never fabricate an ID or offer them as Codex recipients.
+    if metadata and not native_rows and not warning:
+        warning = 'Chat lette dall’indice locale. Interfaccia Codex non riconosciuta: gli invii potrebbero essere bloccati. Verifica aggiornamenti di Sentinella.'
+    return sorted(rows,key=lambda row:row.get('last_activity_at') or 0,reverse=True), warning or enrichment_warning
 
 
 def claude_header(path):

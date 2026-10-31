@@ -1,5 +1,5 @@
 #ifndef AppVersion
-#define AppVersion "0.2.19"
+#define AppVersion "0.2.20"
 #endif
 #ifndef BinaryDir
   #define BinaryDir "..\dist\Sentinella"
