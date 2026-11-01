@@ -5,12 +5,49 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 import threading
+import uuid
+import copy
 
 from delivery_journal import Journal, digest
 from message_engine import TimerStore
 
 
 class DeliveryJournalTests(unittest.TestCase):
+    def codex_appended_receipt(self):
+        from native_receipts import codex_page_receipt
+        target=str(uuid.uuid4())
+        job={**self.job,'app':'codex','version':'codex-v1','thread_id':target}
+        binding={'app':'codex','logical_id':target,'runtime_id':target,'server_version':'sentinella/0.166.0-alpha.5.1'}
+        self.store.prepare(job,1000)
+        row=self.journal.reserve(job,binding,1061)
+        self.journal.transition(row['id'],'dispatch_intent','Invio',1062)
+        row=self.journal.get(row['id'])
+        entry={'item':{'type':'userMessage','id':str(uuid.uuid4()),'clientId':row['id'],
+                      'content':[{'type':'text','text':job['message']+'\n'}]},'startedAtMs':1063000}
+        return row,codex_page_receipt(row,{'data':[entry]},1064)
+
+    def test_confirm_checks_the_real_appended_lf_and_records_format_audit(self):
+        row,receipt=self.codex_appended_receipt()
+        self.assertNotEqual(row['message_hash'],receipt['message_hash'])
+        self.assertTrue(self.journal.confirm(row['id'],receipt,1064))
+        self.assertEqual((1063,1123,'idle'),tuple(self.store.db.execute('SELECT last_sent,due,phase FROM timers').fetchone()))
+        evidence=json.loads(self.store.db.execute('SELECT evidence_json FROM native_receipts').fetchone()[0])
+        self.assertEqual(digest(self.job['message']+'\n'),evidence['message_hash'])
+        self.assertEqual(row['message_hash'],evidence['expected_message_hash'])
+        self.assertIn('nuova riga finale',self.journal.get(row['id'])['detail'])
+
+    def test_forged_format_marker_or_native_item_cannot_advance_the_timer(self):
+        row,receipt=self.codex_appended_receipt()
+        for field in ('content','clientId','id'):
+            with self.subTest(field=field):
+                altered=copy.deepcopy(receipt)
+                altered['native_item']['item'][field]=([{'type':'text','text':'changed'}] if field=='content' else str(uuid.uuid4()))
+                with self.assertRaises(ValueError):self.journal.confirm(row['id'],altered,1064)
+        altered={**receipt,'native_item':{}}
+        with self.assertRaises(ValueError):self.journal.confirm(row['id'],altered,1064)
+        self.assertEqual(0,self.store.db.execute('SELECT count(*) FROM native_receipts').fetchone()[0])
+        self.assertIsNone(self.store.rows()[0]['last_sent'])
+
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
         self.path = Path(self.folder.name)/'messages.sqlite3'

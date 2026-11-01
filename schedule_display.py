@@ -30,7 +30,7 @@ def _schedule_display(job, stored, config, now, waiting_reason=None):
     if native in {'reserved','dispatch_intent','accepted','unknown'}:
         if native=='reserved':return {**result,'status':'Preparazione','next':'Collegamento alla chat'}
         if native=='accepted' and 'accodato' in detail:
-            return {**result,'status':'Accodato alla chat','next':'Attende l’elaborazione della chat'}
+            return {**result,'status':'Accodato alla chat','next':'Non ancora ricevuto'}
         return {**result,'status':'Verifica ricevuta' if now-state.get('reserved_at',0)<120 else 'Da verificare',
                 'next':'Verifica automatica della ricezione; nessun reinvio'}
     if 'interfaccia' in detail and 'non riconosciuta' in detail or 'campo messaggio non univoco' in detail:
@@ -57,7 +57,7 @@ def _schedule_display(job, stored, config, now, waiting_reason=None):
         if 'bozza scomparsa' in result['detail'].casefold():
             return {**result, 'status':'Da verificare', 'next':'Controlla il registro'}
         if 'messaggio accodato alla chat' in result['detail'].casefold():
-            return {**result, 'status':'Accodato alla chat', 'next':'Attende l’elaborazione della chat'}
+            return {**result, 'status':'Accodato alla chat', 'next':'Non ancora ricevuto'}
         if state.get("local_stage") in {"reserved", "drafted"}:
             if "bozza presente" in result["detail"].casefold():
                 return {**result, "status": "Bozza presente", "next": "Campo messaggio già compilato"}
@@ -128,7 +128,7 @@ def schedule_display(job, stored, config, now, waiting_reason=None):
     key, label = canonical.get(result['status'], ('waiting','In attesa'))
     if key != 'scheduled':
         precise = {'paused':'Nessun nuovo invio', 'completed':'—', 'closed_unconfirmed':'Nessun altro invio', 'draft':'Campo messaggio già compilato',
-                   'preparing':result['next'], 'queued':'Attende l’elaborazione della chat',
+                   'preparing':result['next'], 'queued':'Non ancora ricevuto',
                    'confirming':'Attende la ricevuta', 'unconfirmed':'Controlla il registro',
                    'attention':'Controlla il destinatario'}.get(key, result['next'])
     detail = result['detail']
@@ -143,7 +143,19 @@ def schedule_display(job, stored, config, now, waiting_reason=None):
         detail = ('La pausa generale sospende tutti i nuovi invii.' if config.get('paused') else 'Hai messo in pausa questa programmazione.')
         if state.get('phase') == 'uncertain':
             detail += ' Il tentativo precedente resta registrato nel registro e non verrà ripetuto senza prova.'
+    queue_delayed=False
+    if key == 'queued':
+        detail='Il messaggio è in coda ma non risulta ancora ricevuto. '
+        detail+=('Finché attende, la programmazione non avvia nuovi invii, per evitare duplicati.'
+                 if job.get('repeat',True) else 'Sentinella non lo reinvia, per evitare duplicati.')
+        since=state.get('reserved_at')
+        interval=job.get('interval_seconds')
+        valid_time=lambda value:isinstance(value,(int,float)) and not isinstance(value,bool) and math.isfinite(value)
+        if valid_time(since) and 0<=since<=now:
+            elapsed=now-since
+            if elapsed>=60:precise=f'In coda da {int(elapsed//60)} min'
+            queue_delayed=bool(valid_time(interval) and interval>0 and elapsed>=interval)
     return {**result, 'status':label, 'status_key':key,
-            'severity':'warning' if key in {'draft','unconfirmed','attention','error'} else 'info',
+            'severity':'warning' if queue_delayed or key in {'draft','unconfirmed','attention','error'} else 'info',
             'detail':detail, "activation": activation, "activity": label, "next_precise": precise,
             "scheduled_at": clock_label(result["due"], now)}

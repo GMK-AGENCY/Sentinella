@@ -280,5 +280,42 @@ class NativeReceiptTests(unittest.TestCase):
         entry['item']['clientId']=str(uuid.uuid4())
         self.assertIsNone(codex_page_receipt(self.attempt,{'data':[entry]},1002))
 
+    def codex_format_fixture(self, suffix='\n', version='0.166.0-alpha.5.1'):
+        attempt={**self.attempt,'job_json':json.dumps({'message':self.text}),
+                 'binding_json':json.dumps({**self.binding,'server_version':'sentinella/'+version})}
+        entry={'item':{'type':'userMessage','id':self.physical,'clientId':self.token,
+                      'content':[{'type':'text','text':self.text+suffix}]},'startedAtMs':1001000}
+        return attempt,entry
+
+    def test_codex_single_terminal_lf_keeps_observed_and_expected_hashes_distinct(self):
+        attempt,entry=self.codex_format_fixture()
+        receipt=codex_page_receipt(attempt,{'data':[entry]},1002)
+        self.assertEqual('appended_single_lf',receipt['text_match'])
+        self.assertEqual(digest(self.text+'\n'),receipt['message_hash'])
+        self.assertEqual(digest(self.text),receipt['expected_message_hash'])
+        self.assertEqual(entry,receipt['native_item'])
+
+    def test_codex_format_equivalence_never_trims_or_accepts_other_changes(self):
+        for suffix in ('\r\n','\n\n',' ','\nchanged'):
+            with self.subTest(suffix=suffix):
+                attempt,entry=self.codex_format_fixture(suffix)
+                with self.assertRaises(ValueError):codex_page_receipt(attempt,{'data':[entry]},1002)
+        attempt,entry=self.codex_format_fixture()
+        entry['item']['content'][0]['text']=self.text.rstrip()+'\n'
+        with self.assertRaises(ValueError):codex_page_receipt(attempt,{'data':[entry]},1002)
+
+    def test_codex_terminal_lf_requires_qualified_version_and_valid_snapshot(self):
+        for version in ('','0.166.0-alpha.5.2','0.166.0-alpha.5.10'):
+            attempt,entry=self.codex_format_fixture(version=version)
+            with self.assertRaises(ValueError):codex_page_receipt(attempt,{'data':[entry]},1002)
+        attempt,entry=self.codex_format_fixture()
+        attempt['job_json']=json.dumps({'message':'another snapshot'})
+        with self.assertRaises(ValueError):codex_page_receipt(attempt,{'data':[entry]},1002)
+
+    def test_codex_receipt_cannot_predate_dispatch_even_when_after_reservation(self):
+        attempt,entry=self.codex_format_fixture(suffix='')
+        attempt['dispatched']=1001.5
+        with self.assertRaisesRegex(ValueError,'Data della ricevuta'):codex_page_receipt(attempt,{'data':[entry]},1002)
+
 
 if __name__=='__main__':unittest.main()

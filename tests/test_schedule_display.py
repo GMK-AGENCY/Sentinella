@@ -40,7 +40,25 @@ class DisplayTests(unittest.TestCase):
         display = schedule_display(self.job,state,{},self.now)
         self.assertEqual(display['status'], 'Accodato alla chat')
         self.assertEqual(display['status_key'], 'queued')
-        self.assertEqual(display['severity'], 'info')
+        self.assertEqual(display['severity'], 'warning')
+        self.assertEqual(display['next_precise'], 'In coda da 60 min')
+        self.assertIn('non risulta ancora ricevuto',display['detail'])
+        self.assertIn('evitare duplicati',display['detail'])
+
+    def test_recent_queue_is_not_a_delivery_and_is_not_yet_overdue(self):
+        state={'version':'new','phase':'uncertain','native_stage':'accepted',
+               'reserved_at':self.now-61,'due':self.now-61,'detail':'Accodato nella chat'}
+        result=schedule_display(self.job,state,{},self.now,'PC in uso')
+        self.assertEqual(result['status_key'],'queued')
+        self.assertEqual(result['severity'],'info')
+        self.assertEqual(result['next_precise'],'In coda da 1 min')
+        self.assertIn('non risulta ancora ricevuto',result['detail'])
+        paused=schedule_display({**self.job,'enabled':False},state,{},self.now)
+        self.assertEqual(paused['status_key'],'paused')
+        self.assertEqual(paused['next_precise'],'Nessun nuovo invio')
+        once=schedule_display({**self.job,'repeat':False},state,{},self.now)
+        self.assertIn('non lo reinvia',once['detail'])
+        self.assertNotIn('successivo',once['detail'])
 
     def test_resume_does_not_claim_an_uncertain_attempt_was_received(self):
         state = {'version':'new', 'phase':'uncertain', 'local_stage':'drafted', 'detail':'Bozza scomparsa'}

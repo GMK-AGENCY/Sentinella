@@ -175,8 +175,18 @@ class Journal:
             if row['state'] not in {'dispatch_intent','accepted','unknown'}:
                 raise ValueError('Ricevuta incompatibile con un tentativo senza invio')
             binding = json.loads(row['binding_json'])
+            hash_valid=receipt.get('message_hash')==row['message_hash']
+            format_detail=''
+            if receipt.get('text_match')=='appended_single_lf':
+                # Recompute the narrowly qualified equivalence from the real
+                # native item and the immutable snapshot, not adapter claims.
+                from native_receipts import codex_page_receipt
+                proof=codex_page_receipt(row,{'data':[receipt.get('native_item',{})]},now) if row['app']=='codex' else None
+                fields=('app','target_id','correlation','physical_id','message_hash','expected_message_hash','text_match','received_at')
+                hash_valid=bool(proof and all(proof.get(k)==receipt.get(k) for k in fields))
+                format_detail='Ricevuto con una nuova riga finale aggiunta'
             if (receipt.get('app') != row['app'] or receipt.get('target_id') != binding['runtime_id']
-                    or receipt.get('message_hash') != row['message_hash'] or not receipt.get('physical_id')
+                    or not hash_valid or not receipt.get('physical_id')
                     or receipt.get('received_at',0) < row['created']-1
                     or receipt.get('received_at',now+2) > now+1
                     or receipt.get('correlation') != token):
@@ -186,14 +196,14 @@ class Journal:
                 (row['app'],binding['runtime_id'],receipt['physical_id'],token,
                  receipt['received_at'],json.dumps(receipt)))
             self.db.execute("UPDATE native_attempts SET state='received',receipt_id=?,detail=? WHERE id=?",
-                            (receipt['physical_id'],'Messaggio ricevuto nella chat',token))
+                            (receipt['physical_id'],format_detail or 'Messaggio ricevuto nella chat',token))
             received = receipt['received_at']
             self.db.execute('''UPDATE timers SET phase=?,last_sent=?,due=?,detail=?
                 WHERE id=? AND version=? AND phase='uncertain' ''',
                 ('idle' if job.get('repeat',True) else 'finished',received,
-                 received+job['interval_seconds'],'Messaggio ricevuto nella chat',row['job_id'],row['version']))
+                 received+job['interval_seconds'],format_detail or 'Messaggio ricevuto nella chat',row['job_id'],row['version']))
             self.db.execute('INSERT INTO message_events(at,job_id,title,event,detail) VALUES(?,?,?,?,?)',
-                (received,row['job_id'],job['title'],'Consegnato con ricevuta','Ricevuta nativa '+receipt['physical_id']))
+                (received,row['job_id'],job['title'],'Consegnato con ricevuta','Ricevuta nativa '+receipt['physical_id']+(' · '+format_detail if format_detail else '')))
             self.db.execute('UPDATE message_failures SET resolved_at=? WHERE job_id=? AND version=? AND resolved_at IS NULL',
                 (now,row['job_id'],row['version']))
             self.db.execute('DELETE FROM message_retry WHERE job_id=? AND version=?',(row['job_id'],row['version']))
