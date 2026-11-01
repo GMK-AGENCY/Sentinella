@@ -27,6 +27,38 @@ class Button:
 
 
 class LocalSenderTests(unittest.TestCase):
+    def test_edit_retires_only_unsent_reserved_version_and_keeps_new_deadline(self):
+        self.tick(2000,lambda *_:{'action':'none','reason':'Campo messaggio non univoco'})
+        token=self.store.db.execute('SELECT token FROM local_codex_deliveries').fetchone()[0]
+        self.job.update(version='v2',message='New message',activated_at=2100)
+        self.assertEqual(self.tick(2100,lambda *_:self.fail('not due'))['action'],'superseded_before_send')
+        self.assertEqual(self.store.rows()[0]['due'],3900)
+        self.assertEqual(self.tick(3899,lambda *_:self.fail('not due'))['action'],'idle')
+        self.assertEqual(self.store.db.execute('SELECT stage FROM local_codex_deliveries WHERE token=?',(token,)).fetchone()[0],'cancelled_before_send')
+        self.assertIsNone(self.store.db.execute('SELECT confirmed_at FROM connector_deliveries WHERE token=?',(token,)).fetchone()[0])
+        self.assertEqual(self.tick(3900,lambda *_:{'action':'drafted'})['action'],'drafted')
+
+    def test_edit_never_retires_a_draft_or_an_uncertain_send(self):
+        self.tick(2000,lambda *_:{'action':'drafted'})
+        self.job.update(version='v2',message='New message',activated_at=2100)
+        self.assertEqual(self.tick(2100,lambda *_:self.fail('preserve draft'))['action'],'changed_or_disabled')
+        self.assertEqual(self.store.db.execute('SELECT stage FROM local_codex_deliveries').fetchone()[0],'drafted')
+
+    def test_native_read_error_is_persisted_and_cleared_only_by_real_receipt(self):
+        self.metadata=lambda job:(_ for _ in ()).throw(ValueError('Interfaccia non disponibile'))
+        with self.assertRaisesRegex(ValueError,'Interfaccia non disponibile'):
+            self.tick(2000,lambda *_:self.fail('must not send'))
+        self.assertIn('Interfaccia non disponibile',self.store.rows()[0]['delivery_error'])
+        self.assertEqual(self.store.rows()[0]['due'],1800)
+        self.metadata=lambda job:{'id':'thread-1','rollout_path':str(self.path)}
+        button=Button()
+        adapter=lambda c,j,d:({'action':'ready','button':button} if d['drafted'] else {'action':'drafted'})
+        self.assertEqual(self.tick(2001,adapter)['action'],'drafted')
+        self.assertEqual(self.tick(2002,adapter)['action'],'awaiting_receipt')
+        self.append(self.job['message'],at=2003)
+        self.assertEqual(self.tick(2004,adapter)['action'],'confirmed')
+        self.assertNotIn('delivery_error',self.store.rows()[0]);self.assertEqual(button.calls,1)
+
     def test_rename_after_draft_sends_once_to_the_same_id_and_receipt(self):
         button=Button();seen=[]
         def adapter(config,job,delivery):

@@ -22,7 +22,10 @@ def _schedule_display(job, stored, config, now, waiting_reason=None):
     if not job.get("enabled") or config.get("paused"):
         return {**result, "status": "In pausa", "next": "Riprendi Sentinella" if config.get("paused") else "Riprendi il messaggio"}
     detail = result['detail'].casefold()
-    if state.get('delivery_error') and phase not in {'uncertain','finished'}:
+    if 'interfaccia' in detail and 'non riconosciuta' in detail or 'campo messaggio non univoco' in detail:
+        return {**result,'status':'Errore invio','next':'Aggiorna Sentinella',
+                'detail':result['detail']+' · Il timer e le bozze sono conservati. Nessun nuovo invio finché il campo messaggio non è riconosciuto.'}
+    if state.get('delivery_error') and (phase not in {'uncertain','finished'} or state.get('local_stage') in {'reserved','drafted'}):
         return {**result,'status':'Errore invio','next':'Nuovo tentativo automatico',
                 'detail':state['delivery_error']+' · Il tentativo verrà ripetuto senza modificare la scadenza o le bozze.'}
     before_send = phase != 'uncertain' or (state.get('local_stage') in {'reserved','drafted'} and 'bozza scomparsa' not in detail)
