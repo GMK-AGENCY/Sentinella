@@ -24,12 +24,13 @@ class MessagesPanel(ttk.Frame):
         super().__init__(parent, padding=20)
         self.selected_job=None;self.target=None;self.targets=[];self.chats={};self.catalog=[]
         self.scan_errors=[];self.filter_pending=None;self.results=queue.Queue();self.scan_running=False
+        self.recovery_results=queue.Queue();self.recovery_running=False
         self.last_render=0;self.rendering_chats=False;self.rendering_jobs=False
         self.editor_step=1;self.editor_baseline=None;self.editor_visible=False;self.loading_job=False
         self.status=tk.StringVar()
         self.catalog_status=tk.StringVar(value='Premi Aggiorna elenco per rilevare le chat aperte.')
         self.list_view=ttk.Frame(self);self.list_view.pack(fill='both',expand=True)
-        heading=ttk.Frame(self.list_view);heading.pack(fill='x',pady=(0,10))
+        heading=ttk.Frame(self.list_view);self.list_heading=heading;heading.pack(fill='x',pady=(0,10))
         ttk.Label(heading,text='Programmazioni salvate',style='Section.TLabel').pack(side='left')
         ttk.Button(heading,text='+ Nuova programmazione',command=self.new,style='Primary.TButton').pack(side='right')
         self.split=ttk.Panedwindow(self.list_view,orient='vertical');self.split.pack(fill='both',expand=True)
@@ -123,6 +124,7 @@ class MessagesPanel(ttk.Frame):
         self.save_text_button=ttk.Button(bar,text='Salva nei messaggi',command=lambda:self.library_callback());self.save_text_button.pack(side='right',padx=(0,8))
         ttk.Button(bar,text='Usa messaggio salvato',command=self.choose_saved_message).pack(side='right',padx=(0,8))
         self.history_button=ttk.Button(bar,text='Registro invii',command=self.show_history);self.history_button.pack(side='right',padx=(0,8))
+        self.recovery_button=ttk.Button(self.list_heading,text='Gestisci invii incerti…',command=self.recover_legacy)
         self.status_label=ttk.Label(self.write_page,textvariable=self.status,foreground='#a44324',wraplength=720,anchor='e',justify='right')
         self.status.trace_add('write',self.show_status)
         self.show_status()
@@ -133,6 +135,55 @@ class MessagesPanel(ttk.Frame):
     def choose_saved_message(self):
         from message_library import MessageLibraryChooser
         MessageLibraryChooser(self,self.use_saved_message)
+
+    def recover_legacy(self):
+        """Only an explicit user click can authorize future legacy slots."""
+        if self.recovery_running or not self.may_leave():return
+        job=next((j for j in load_jobs() if j['id']==self.selected_job),None)
+        if job is None:return
+        self.recovery_running=True;self.recovery_button.configure(state='disabled')
+        def inspect():
+            from delivery_recovery import list_legacy_pending
+            try:
+                store=TimerStore(ROOT/'logs/messages.sqlite3')
+                try:pending=list_legacy_pending(store,job)
+                finally:store.db.close()
+                self.recovery_results.put(('confirm',job,pending))
+            except Exception as exc:self.recovery_results.put(('error',job,str(exc)))
+        threading.Thread(target=inspect,daemon=True).start()
+
+    def poll_recovery(self):
+        try:kind,job,value=self.recovery_results.get_nowait()
+        except queue.Empty:return
+        self.recovery_running=False;self.recovery_button.configure(state='normal')
+        if kind=='error':self.status.set('Nessuna modifica: '+value);return
+        if kind=='done':
+            self.render_jobs()
+            self.status.set('Ripartenza dai soli invii futuri salvata. Il vecchio invio resta senza conferma.'
+                if value['action']=='future_only' else 'Programmazione terminata senza confermare il vecchio invio.')
+            return
+        if not value:
+            self.status.set('Non ci sono vecchi invii da sbloccare. La verifica delle ricevute native è automatica.')
+            return
+        if job['id']!=self.selected_job:
+            self.status.set('Seleziona di nuovo la programmazione da sbloccare.');return
+        repeat=job.get('repeat',True)
+        decision=('Ripartire dalla prossima scadenza futura, saltando gli intervalli già trascorsi?'
+                  if repeat else 'Terminare questa programmazione singola senza ripetere il vecchio invio?')
+        if not messagebox.askyesno('Vecchio invio senza conferma',
+                f'Chat: {job["title"]}\n\nUn vecchio tentativo non ha una ricevuta verificata. '
+                'Non è possibile stabilire con certezza se sia stato ricevuto.\n\n'+decision+
+                '\n\nIl vecchio tentativo non sarà ripetuto né segnato come ricevuto. '
+                'Bozze, testo, pause e ultima consegna confermata resteranno invariati.',
+                parent=self,default='no'):return
+        self.recovery_running=True;self.recovery_button.configure(state='disabled')
+        def apply():
+            from delivery_recovery import apply_resolution
+            try:
+                report=apply_resolution(ROOT,job['id'],job['version'],[row['token'] for row in value],time.time())
+                self.recovery_results.put(('done',job,report))
+            except Exception as exc:self.recovery_results.put(('error',job,str(exc)))
+        threading.Thread(target=apply,daemon=True).start()
 
     def show_status(self,*_):
         if self.status.get():self.status_label.pack(fill='x',pady=(4,0),after=self.editor_actions)
@@ -568,7 +619,7 @@ class MessagesPanel(ttk.Frame):
         for job in jobs:
             display = schedule_display(job, states.get(job["id"]), config, now, waiting_reason)
             self.display_states[job["id"]] = display
-            last=clock_label(receipts[job['id']],now) if job['id'] in receipts else display['last_sent']
+            last=clock_label(receipts[job['id']],now) if job['id'] in receipts else 'Ricevuta non disponibile'
             values = (job['app'].title(),job["title"], display["status"], display["next_precise"], last, '', '')
             if job["id"] in existing:
                 if tuple(self.job_list.item(job["id"], "values")) != values:
@@ -580,9 +631,14 @@ class MessagesPanel(ttk.Frame):
             self.job_list.delete(key)
         self.rendering_jobs=False
         self.row_actions.refresh()
+        # Quarantine can belong to an old version or another job of this ID.
+        # Inspect on demand, without resolving or reading a Claude index on Tk.
+        if self.selected_job:self.recovery_button.pack(side='right',padx=(0,8))
+        else:self.recovery_button.pack_forget()
         self.choose_job()
 
     def poll(self):
+        self.poll_recovery()
         received=False
         try:
             rows, errors = self.results.get_nowait()

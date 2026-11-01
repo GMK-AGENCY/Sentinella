@@ -6,11 +6,11 @@ import tempfile
 import time
 import unittest
 import copy
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 import psutil
 
-from bounded_process import run_bounded
+from bounded_process import run_bounded, stop_owned
 from desktop_identity import executable_matches
 from question_supervisor import bounded_worker, scheduled_scan
 from polling_policy import ScanClock
@@ -18,6 +18,23 @@ import question_supervisor
 
 
 class NativeWorkerTests(unittest.TestCase):
+    def test_denied_exit_observation_is_reported_without_retry_or_escalation(self):
+        process=Mock(pid=123);parent=Mock(pid=123)
+        parent.is_running.return_value=False
+        with patch('bounded_process.psutil.wait_procs',side_effect=psutil.AccessDenied(123)) as wait, \
+             patch('bounded_process.psutil.Process',side_effect=AssertionError('No alternate process lookup')), \
+             self.assertLogs('bounded_process',level='WARNING') as logs:
+            self.assertFalse(stop_owned(process,{123:parent}))
+        wait.assert_called_once();parent.kill.assert_called_once();process.wait.assert_called_once_with(timeout=1)
+        self.assertIn('non verificabile',logs.output[0])
+
+    def test_cleanup_observation_failure_does_not_erase_real_adapter_output(self):
+        with patch('bounded_process.psutil.wait_procs',side_effect=psutil.AccessDenied(123)), \
+             self.assertLogs('bounded_process',level='WARNING'):
+            result=run_bounded([sys.executable,'-c',"print('completed')"],timeout=2)
+        self.assertEqual(0,result['returncode']);self.assertEqual('completed',result['stdout'].strip())
+        self.assertFalse(result['cleanup_verified']);self.assertFalse(result['timed_out'])
+
     def test_passively_seen_permission_runs_as_soon_as_pc_is_idle(self):
         config = {"paused": False, "enabled": True, "away_mode": False, "idle_seconds_before_actions": 10,
                   "chat_scan_seconds": 900, "apps": {"codex": {"questions_enabled": False,

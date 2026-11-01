@@ -9,6 +9,20 @@ from message_engine import TimerStore
 
 
 class DeliveryConcurrencyTests(unittest.TestCase):
+    def test_stale_caller_cannot_claim_a_newer_prepared_token(self):
+        old=self.a.current(self.job)['token']
+        def replace_while_inspecting(job):
+            self.first.db.execute("UPDATE claude_timer_deliveries SET stage='cleared' WHERE token=?",(old,))
+            self.first.db.commit()
+            with patch('claude_delivery.locate',return_value=self.identity):self.a.prepare(job)
+            return self.identity
+        with patch('claude_delivery.locate',side_effect=replace_while_inspecting):
+            with self.assertRaisesRegex(ValueError,'Prenotazione Claude cambiata'):self.b.begin_send(self.job)
+        current=self.a.current(self.job)
+        self.assertNotEqual(old,current['token'])
+        self.assertEqual('prepared',current['stage']);self.assertIsNone(current['send_started'])
+        self.assertIsNone(self.b.claimed_token)
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name);self.history=self.root/'history.jsonl';self.history.write_text('')

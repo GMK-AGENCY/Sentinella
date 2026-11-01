@@ -181,6 +181,35 @@ class ClaudeDeliveryTests(unittest.TestCase):
         for expected, actual in [(' già.', 'già.'), ('già. ', 'gia.'), ('a  b ', 'a b'), ('a\n', 'a')]:
             self.assertFalse(receipt_matches(expected, actual))
 
+    def test_resolved_legacy_token_cannot_reuse_a_future_receipt_or_draft(self):
+        from delivery_recovery import ensure_schema
+        self.delivery.prepare(self.job);row=self.delivery.current(self.job)
+        ensure_schema(self.store.db)
+        self.store.db.execute('INSERT INTO legacy_delivery_resolutions VALUES(?,?,?,?,?,?,?,?,?)',
+            (row['token'],'claude','session','job','v1',time.time(),900,1800,'future_only'));self.store.db.commit()
+        before=self.store.rows()[0].copy()
+        with patch('claude_delivery.read_receipt') as read:
+            self.assertEqual('resolved_without_confirmation',self.delivery.reconcile(self.job,self.state)['action'])
+        read.assert_not_called()
+        for action in (lambda:self.delivery.prepare(self.job),lambda:self.delivery.begin_send(self.job),
+                       lambda:self.delivery.confirm(self.job,row,{'uuid':'future-user-message'})):
+            with self.assertRaisesRegex(ValueError,'risolto senza conferma'):action()
+        self.assertEqual('prepared',self.delivery.current(self.job)['stage'])
+        self.assertIsNone(self.delivery.current(self.job)['receipt'])
+        self.assertEqual(before,self.store.rows()[0])
+
+    def test_confirmed_token_cannot_be_reassigned_to_a_later_message(self):
+        self.delivery.prepare(self.job);self.delivery.begin_send(self.job);self.user_message(uid='first')
+        row=self.delivery.current(self.job);receipt=read_receipt(self.identity,self.job['message'],0)
+        self.delivery.confirm(self.job,row,receipt)
+        before=self.store.rows()[0].copy();events=list(self.store.db.execute('SELECT * FROM message_events'))
+        with self.assertRaisesRegex(ValueError,'già confermato'):
+            self.delivery.confirm(self.job,row,{**receipt,'uuid':'later-identical-message'})
+        self.delivery.confirm(self.job,row,receipt)
+        self.assertEqual(before,self.store.rows()[0])
+        self.assertEqual(events,list(self.store.db.execute('SELECT * FROM message_events')))
+        self.assertEqual('first',self.delivery.current(self.job)['receipt_uuid'])
+
     def test_two_real_receipts_release_two_separate_reservations(self):
         for uid in ['one', 'two']:
             self.delivery.prepare(self.job)

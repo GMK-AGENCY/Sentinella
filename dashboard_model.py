@@ -173,7 +173,7 @@ def snapshot(config, jobs, states, history, health, now):
         key, reason, severity = display["status_key"], display["detail"], display["severity"]
         if due is None:
             key, reason, severity = "attention", "La prossima scadenza non è disponibile.", "warning"
-        if key not in {"scheduled", "completed", "paused"}:
+        if key not in {"scheduled", "completed", "closed_unconfirmed", "paused"}:
             entry = {**base, "reason": reason, "severity": severity}
             (attention if enabled and not paused else inactive).append(entry)
         elif phase == "uncertain" and reason:

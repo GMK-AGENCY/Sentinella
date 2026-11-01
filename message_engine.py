@@ -174,6 +174,18 @@ class TimerStore:
                     if row['id'] == item['job_id'] and row['version'] == item['version']:
                         stage = 'awaiting_receipt' if item['stage'] == 'sending' else 'drafted' if item['stage'] == 'prepared' else item['stage']
                         row.update(local_stage=stage, reserved_at=item['send_started'] or item['prepared_at'])
+        if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='native_attempts'").fetchone():
+            for item in self.db.execute('SELECT job_id,version,state,created,detail FROM native_attempts ORDER BY created'):
+                for row in rows:
+                    if row['id']==item['job_id'] and row['version']==item['version']:
+                        row.update(native_stage=item['state'],reserved_at=item['created'])
+                        if item['state'] in {'reserved','dispatch_intent','accepted','unknown'}:
+                            row.update(detail=item['detail'])
+        if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='legacy_delivery_resolutions'").fetchone():
+            for item in self.db.execute('SELECT job_id,version,kind FROM legacy_delivery_resolutions ORDER BY at'):
+                for row in rows:
+                    if row['id']==item['job_id'] and row['version']==item['version']:
+                        row['legacy_resolution']=item['kind']
         return rows
 
 

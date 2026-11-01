@@ -34,6 +34,10 @@ def main():
         from release_smoke import run
         run()
         return
+    if args==['--smoke-ui']:
+        from release_smoke import run
+        run(ui_only=True)
+        return
     if args[:1] == ["--verify-codex-permissions"]:
         from codex_permission_selftest import main as verify
         raise SystemExit(verify(args[1:]))

@@ -77,7 +77,7 @@ if count==1:
 assert json.loads((root/'state.json').read_text())['message']=='saved'
 (root/'logs/exit-intent.json').write_text(json.dumps({'run_id':os.environ['SENTINELLA_RUN_ID']}))
 ''', encoding="utf-8")
-            code = "from sentinel_launcher import Launcher;import sys;Launcher(root=sys.argv[1],check_seconds=.02,restart_scale=.001).run()"
+            code = "from sentinel_launcher import Launcher;import sys;Launcher(root=sys.argv[1],source_root=sys.argv[1],check_seconds=.02,restart_scale=.001).run()"
             result = subprocess.run([sys.executable, "-c", code, str(root)], capture_output=True, text=True, timeout=8, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((root / "counter.txt").read_text(), "2")

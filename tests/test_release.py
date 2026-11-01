@@ -12,6 +12,12 @@ from startup_manager import set_startup
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_packaged_ui_qualification_cannot_open_windows_on_a_local_machine(self):
+        from release_smoke import run
+        with patch.dict('os.environ',{'GITHUB_ACTIONS':'false'}),patch('notification_watch.Monitor') as monitor:
+            with self.assertRaisesRegex(RuntimeError,'isolated hosted runner'):run(ui_only=True)
+        monitor.assert_not_called()
+
     def test_release_contains_only_public_sources_and_verified_manifest(self):
         with tempfile.TemporaryDirectory() as folder:
             archive = Path(folder) / "source.zip"

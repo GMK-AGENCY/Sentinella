@@ -20,7 +20,7 @@ def schedule_sections(records, attention, today=None):
     planned={};waiting=[];paused=[];completed=[]
     for record in records:
         if record['status']=='In pausa':paused.append(record)
-        elif record['status']=='Completato':completed.append(record)
+        elif record.get('status_key') in {'completed','closed_unconfirmed'} or record['status']=='Completato':completed.append(record)
         elif record['job_id'] in attention:waiting.append(record)
         else:
             day=datetime.fromtimestamp(record['when']).astimezone().date() if record.get('when') is not None else today

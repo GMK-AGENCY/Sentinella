@@ -22,6 +22,17 @@ def _schedule_display(job, stored, config, now, waiting_reason=None):
     if not job.get("enabled") or config.get("paused"):
         return {**result, "status": "In pausa", "next": "Riprendi Sentinella" if config.get("paused") else "Riprendi il messaggio"}
     detail = result['detail'].casefold()
+    native=state.get('native_stage')
+    if 'invio precedente della stessa chat in verifica' in detail:
+        return {**result,'status':'Verifica ricevuta','next':'Verifica automatica dell’invio precedente; nessun reinvio'}
+    if 'vecchio invio senza conferma' in detail:
+        return {**result,'status':'Da verificare','next':'Gestisci invii incerti nelle Programmazioni'}
+    if native in {'reserved','dispatch_intent','accepted','unknown'}:
+        if native=='reserved':return {**result,'status':'Preparazione','next':'Collegamento alla chat'}
+        if native=='accepted' and 'accodato' in detail:
+            return {**result,'status':'Accodato alla chat','next':'Attende l’elaborazione della chat'}
+        return {**result,'status':'Verifica ricevuta' if now-state.get('reserved_at',0)<120 else 'Da verificare',
+                'next':'Verifica automatica della ricezione; nessun reinvio'}
     if 'interfaccia' in detail and 'non riconosciuta' in detail or 'campo messaggio non univoco' in detail:
         return {**result,'status':'Errore invio','next':'Aggiorna Sentinella',
                 'detail':result['detail']+' · Il timer e le bozze sono conservati. Nessun nuovo invio finché il campo messaggio non è riconosciuto.'}
@@ -55,8 +66,12 @@ def _schedule_display(job, stored, config, now, waiting_reason=None):
             return {**result, "status": "Verifica ricevuta", "next": "Consegna in verifica"}
         return {**result, "status": "Da verificare", "next": "Invio sospeso"}
     if phase == "finished":
+        if state.get('legacy_resolution')=='archived_unconfirmed':
+            return {**result,'status':'Terminata senza conferma','next':'Nessun altro invio'}
         return {**result, "status": "Completato", "next": "Nessun altro invio"}
     detail = result["detail"].casefold()
+    if 'verifica stato chat in corso' in detail:
+        return {**result,'status':'In attesa','next':'Verifica dello stato della chat','hint':'Controllo automatico'}
     if "chat in elaborazione" in detail:
         return {**result, "status": "Attende la chat", "next": "Quando è libera"}
     if "bozza presente" in detail or "campo già compilato" in detail:
@@ -80,7 +95,7 @@ def schedule_display(job, stored, config, now, waiting_reason=None):
     state = stored if stored and stored.get('version') == job['version'] else {}
     result = _schedule_display(job, stored, config, now, waiting_reason)
     paused = not job.get("enabled") or config.get("paused", False)
-    activation = "In pausa" if paused else "Completato" if result["status"] == "Completato" else "Attivo"
+    activation = "In pausa" if paused else "Completato" if state.get('phase')=='finished' else "Attivo"
     delta = int(math.ceil(result["due"] - now))
     seconds = abs(delta)
     hours, rest = divmod(seconds, 3600)
@@ -103,6 +118,7 @@ def schedule_display(job, stored, config, now, waiting_reason=None):
     else:
         precise = 'Tra ' + duration
     canonical = {'In pausa':('paused','In pausa'), 'Completato':('completed','Completato'),
+                 'Terminata senza conferma':('closed_unconfirmed','Terminata senza conferma'),
                  'Errore invio':('error','Invio bloccato'),
                  'Bozza presente':('draft','Bozza nella chat'), 'Preparazione':('preparing','In preparazione'),
                  'Accodato alla chat':('queued','Accodato alla chat'),
@@ -111,13 +127,15 @@ def schedule_display(job, stored, config, now, waiting_reason=None):
                  'Programmato':('scheduled','Programmato')}
     key, label = canonical.get(result['status'], ('waiting','In attesa'))
     if key != 'scheduled':
-        precise = {'paused':'Nessun nuovo invio', 'completed':'—', 'draft':'Campo messaggio già compilato',
+        precise = {'paused':'Nessun nuovo invio', 'completed':'—', 'closed_unconfirmed':'Nessun altro invio', 'draft':'Campo messaggio già compilato',
                    'preparing':result['next'], 'queued':'Attende l’elaborazione della chat',
                    'confirming':'Attende la ricevuta', 'unconfirmed':'Controlla il registro',
                    'attention':'Controlla il destinatario'}.get(key, result['next'])
     detail = result['detail']
     if key == 'unconfirmed':
         detail = 'Un tentativo precedente non ha ancora una ricevuta verificata. La programmazione è abilitata, ma quel tentativo non viene ripetuto per evitare duplicati.'
+        if 'vecchio invio senza conferma' in result['detail'].casefold():
+            detail+=' Apri Programmazioni → Gestisci invii incerti per scegliere come proseguire.'
         if state.get('delivery_error'):detail += ' Ultimo errore: '+state['delivery_error']
     elif key == 'draft':
         detail = 'Il campo messaggio nell’app destinataria contiene una bozza diversa da quella preparata da Sentinella. La programmazione è salvata; il testo nella chat resta intatto e blocca nuovi invii finché il campo non è libero.'

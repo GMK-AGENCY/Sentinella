@@ -19,7 +19,7 @@ LOGS = ROOT / "logs"
 
 
 class Monitor:
-    def __init__(self):
+    def __init__(self, existing_supervisor=None):
         LOGS.mkdir(exist_ok=True)
         from chat_identity import refresh_saved
         try:refresh_saved(ROOT)
@@ -30,7 +30,7 @@ class Monitor:
         try:self.notifications_cleared_at=float(json.loads((LOGS/'notifications-cleared.json').read_text(encoding='utf-8'))['cleared_at'])
         except (OSError,ValueError,TypeError,KeyError):self.notifications_cleared_at=0
         self.worker = None
-        self.monitoring = True
+        self.monitoring = '--no-notifications' not in sys.argv
         self.restarts = 0
         self.reader_recovery = ServiceRecovery()
         self.last_scan = None
@@ -53,7 +53,7 @@ class Monitor:
         self.taskbar_identity_set = set_process_identity()
         self.root = tk.Tk()
         self.root.report_callback_exception = self.diagnostics.callback_error
-        if "--background" in sys.argv:
+        if "--background" in sys.argv or "--hidden" in sys.argv:
             self.root.withdraw()
         from workspace_ui import build_workspace
         build_workspace(self)
@@ -61,12 +61,15 @@ class Monitor:
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         from input_activity import DeviceActivity
         self.activity = DeviceActivity(ROOT,self.run_id).start()
-        self.start_worker()
-        self.start_supervisor()
+        if self.monitoring:self.start_worker()
+        if existing_supervisor is not None and existing_supervisor.poll() is None:
+            self.supervisor=existing_supervisor
+            self.supervisor_started_wall=time.time();self.supervisor_recovery.started()
+        else:self.start_supervisor()
         (LOGS / "monitor.pid").write_text(str(os.getpid()), encoding="ascii")
         self.root.after(500, self.poll)
         self.gui_heartbeat()
-        if "--background" in sys.argv:
+        if "--background" in sys.argv and "--hidden" not in sys.argv:
             self.root.deiconify()
             self.root.iconify()
 
@@ -77,7 +80,7 @@ class Monitor:
     def gui_heartbeat(self):
         from sentinel_launcher import atomic_json
         try:
-            atomic_json(LOGS / "gui-heartbeat.json", {"run_id": self.run_id, "pid": os.getpid(), "updated_at": time.time(), "poll_updated_at": getattr(self, "last_poll_success", time.time()), "taskbar_identity_set":getattr(self,'taskbar_identity_set',False)})
+            atomic_json(LOGS / "gui-heartbeat.json", {"run_id": self.run_id, "pid": os.getpid(), "updated_at": time.time(), "poll_updated_at": getattr(self, "last_poll_success", time.time()), "taskbar_identity_set":getattr(self,'taskbar_identity_set',False),"window_state":self.root.state()})
         except OSError as exc:
             try:
                 self.log({"type": "gui_heartbeat_write_error", "error": str(exc)})
@@ -306,9 +309,12 @@ class Monitor:
             request_path = LOGS / "show-window.json"
             if request_path.exists():
                 try:
+                    from sentinel_launcher import read_json
+                    request=read_json(request_path)
                     request_path.unlink()
-                    self.root.deiconify()
-                    self.root.lift()
+                    if request.get('run_id')==self.run_id:
+                        self.root.deiconify()
+                        self.root.lift()
                 except OSError:
                     pass
             try:
@@ -416,4 +422,10 @@ if __name__ == "__main__":
         msvcrt.locking(instance_lock.fileno(), msvcrt.LK_NBLCK, 1)
     except OSError:
         raise SystemExit(0)
-    Monitor().run()
+    if '--hidden' in sys.argv:
+        from headless_service import run as run_headless
+        show,existing=run_headless(ROOT)
+        if show:
+            sys.argv.remove('--hidden')
+            Monitor(existing_supervisor=existing).run()
+    else:Monitor().run()
