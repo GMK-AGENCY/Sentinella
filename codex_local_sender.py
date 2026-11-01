@@ -24,7 +24,7 @@ def audit(action, **fields):
         out.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
-def thread_metadata(job, home=None):
+def thread_metadata(job, home=None, *, receipt_only=False):
     home = Path(home) if home else Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
     paths = list(home.glob("state_[0-9]*.sqlite"))
     if not paths:
@@ -33,10 +33,10 @@ def thread_metadata(job, home=None):
     with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=.2)) as connection:
         connection.row_factory = sqlite3.Row
         row = connection.execute("SELECT id, COALESCE(NULLIF(name,''),title) AS name, rollout_path, archived FROM threads WHERE id=?", (job["thread_id"],)).fetchone()
-        if not row or row["archived"]:
+        if not row or row["archived"] and not receipt_only:
             raise ValueError("ID della chat configurata non disponibile")
         duplicates = connection.execute("SELECT count(*) FROM threads WHERE archived=0 AND COALESCE(NULLIF(name,''),title)=?", (row['name'],)).fetchone()[0]
-        if duplicates != 1:
+        if duplicates != 1 and not receipt_only:
             raise ValueError("Titolo Codex duplicato: invio nativo sospeso")
         result = dict(row)
     history = Path(result["rollout_path"])
@@ -153,6 +153,14 @@ def tick(store=None, bridge=None, now=None, metadata=thread_metadata, observe=ob
             if pending:
                 pending = dict(pending)
                 if pending["stage"] in {"sending", "awaiting_receipt"}:
+                    if not Path(pending['history_path']).exists():
+                        # Archiving moves the rollout. Follow only the same ID
+                        # from the read-only index, never a similar file/title.
+                        # This permits receipt lookup, never another send.
+                        moved=thread_metadata({'thread_id':pending['thread_id']},receipt_only=True)
+                        pending['history_path']=moved['rollout_path']
+                        db.execute('UPDATE local_codex_deliveries SET history_path=? WHERE token=?',
+                                   (pending['history_path'],pending['token']));db.commit()
                     if (pending["receipt_revision"] or 0) < 1:
                         # Reconcile an existing reservation after a parser fix.
                         # Re-read authentic history, never resend or redate it.
