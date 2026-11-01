@@ -156,6 +156,26 @@ class DeliveryJournalTests(unittest.TestCase):
         self.assertEqual('reserved',self.journal.get(first['id'])['state'])
         self.assertEqual(1,self.store.db.execute('SELECT count(*) FROM native_attempts').fetchone()[0])
 
+    def test_upgrade_keeps_duplicate_legacy_engines_reconcilable_without_new_effects(self):
+        first=self.attempt()
+        self.journal.transition(first['id'],'dispatch_intent','Old dispatch',1062)
+        self.store.db.execute('DROP INDEX native_open_logical_target')
+        self.store.db.execute('''INSERT INTO native_attempts
+            (id,job_id,version,app,target_id,runtime_id,due,job_json,binding_json,message_hash,created,dispatched,state)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'unknown')''',
+            ('old-duplicate','old-job','old','claude','desktop-id','old-cli-two',1060,json.dumps(self.job),
+             json.dumps({**self.binding,'runtime_id':'old-cli-two'}),digest(self.job['message']),1061,1062))
+        self.store.db.commit()
+        upgraded=Journal(self.store)
+        self.assertEqual(2,len(upgraded.pending(9999)))
+        other={**self.job,'id':'new-alias'};self.store.prepare(other,1000)
+        self.assertIsNone(upgraded.reserve(other,{**self.binding,'runtime_id':'third-cli'},1063))
+        self.assertTrue(upgraded.confirm(first['id'],self.receipt(first),1064))
+        self.assertEqual('unknown',upgraded.get('old-duplicate')['state'])
+        Journal(self.store)
+        self.assertTrue(self.store.db.execute("SELECT 1 FROM sqlite_master WHERE name='native_open_logical_target'").fetchone())
+        self.assertEqual(2,self.store.db.execute('SELECT count(*) FROM native_attempts').fetchone()[0])
+
     def test_legacy_attempt_in_another_job_blocks_same_runtime(self):
         self.store.db.execute('CREATE TABLE claude_timer_deliveries(job_id TEXT,identity TEXT,stage TEXT)')
         self.store.db.execute('INSERT INTO claude_timer_deliveries VALUES(?,?,?)',

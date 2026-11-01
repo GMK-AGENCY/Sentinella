@@ -111,7 +111,7 @@ def codex_inventory(native_rows=(), native_error=None):
     # The unified app also shows ChatGPT conversations. They are not local
     # Codex threads: never fabricate an ID or offer them as Codex recipients.
     if metadata and not native_rows and not warning:
-        warning = 'Chat lette dall’indice locale. Interfaccia Codex non riconosciuta: gli invii potrebbero essere bloccati. Verifica aggiornamenti di Sentinella.'
+        warning = 'Chat lette dall’indice locale. Interfaccia Codex non riconosciuta: verifica il controllo di domande e consensi. Gli invii usano il collegamento locale, verificato separatamente.'
     return sorted(rows,key=lambda row:row.get('last_activity_at') or 0,reverse=True), warning or enrichment_warning
 
 

@@ -32,9 +32,6 @@ class Journal:
             CREATE UNIQUE INDEX IF NOT EXISTS native_open_target
                 ON native_attempts(app,runtime_id)
                 WHERE state IN ('reserved','dispatch_intent','accepted','unknown');
-            CREATE UNIQUE INDEX IF NOT EXISTS native_open_logical_target
-                ON native_attempts(app,target_id)
-                WHERE state IN ('reserved','dispatch_intent','accepted','unknown');
             CREATE TABLE IF NOT EXISTS native_receipts (
                 app TEXT NOT NULL, target_id TEXT NOT NULL, physical_id TEXT NOT NULL,
                 attempt_id TEXT UNIQUE NOT NULL, received REAL NOT NULL,
@@ -44,6 +41,16 @@ class Journal:
                 seq INTEGER PRIMARY KEY, attempt_id TEXT NOT NULL,
                 at REAL NOT NULL, state TEXT NOT NULL, detail TEXT NOT NULL);
         ''')
+        # Earlier versions could leave two physical engines open for one
+        # logical chat. Preserve BOTH intents for receipt-only recovery; the
+        # BEGIN IMMEDIATE reservation check still prevents any new effect.
+        duplicates=self.db.execute("""SELECT 1 FROM native_attempts
+            WHERE state IN ('reserved','dispatch_intent','accepted','unknown')
+            GROUP BY app,target_id HAVING count(*)>1 LIMIT 1""").fetchone()
+        if not duplicates:
+            self.db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS native_open_logical_target
+                ON native_attempts(app,target_id)
+                WHERE state IN ('reserved','dispatch_intent','accepted','unknown')""")
 
     def _event(self, token, state, detail, now):
         self.db.execute('INSERT INTO native_delivery_events(attempt_id,at,state,detail) VALUES(?,?,?,?)',
