@@ -245,8 +245,13 @@ class Delivery:
         row = self.db.execute('SELECT * FROM claude_timer_deliveries WHERE job_id=? AND version=? ORDER BY prepared_at DESC LIMIT 1', (job['id'], job['version'])).fetchone()
         return dict(row) if row else None
 
+    def resolved(self, row):
+        from delivery_recovery import resolution_tokens
+        return bool(row and row['token'] in resolution_tokens(self.store,'claude',json.loads(row['identity'])['session']))
+
     def prepare(self, job):
         previous = self.current(job)
+        if self.resolved(previous):raise ValueError('Tentativo risolto senza conferma: usa il collegamento nativo per gli invii futuri')
         if previous and previous['stage'] == 'prepared' and previous['send_started'] is None and previous['message_hash'] == digest(job['message']):
             if not same_session(locate(job), json.loads(previous['identity'])):
                 raise ValueError('Identità della bozza cambiata: nessuna riscrittura')
@@ -270,19 +275,28 @@ class Delivery:
         row = self.current(job)
         if not row or row['stage'] != 'prepared' or row['message_hash'] != digest(job['message']):
             raise ValueError('Invio Claude privo di bozza prenotata')
+        expected_token=row['token']
         identity = locate(job)
-        if not same_session(identity, json.loads(row['identity'])):
-            raise ValueError('Identità Claude cambiata prima dell’invio')
-        updated = self.db.execute("UPDATE claude_timer_deliveries SET send_started=?,history_offset=?,stage=?,identity=? WHERE token=? AND stage='prepared' AND send_started IS NULL",
-                        (time.time(), Path(identity['history']).stat().st_size, 'sending', json.dumps(identity), row['token']))
-        self.db.commit()
-        if updated.rowcount != 1:
-            raise ValueError('Invio Claude già preso in carico: nessun secondo clic')
+        offset=Path(identity['history']).stat().st_size
+        self.db.execute('BEGIN IMMEDIATE')
+        try:
+            row=self.current(job)
+            if self.resolved(row):raise ValueError('Tentativo risolto senza conferma: nessun reinvio')
+            if not row or row['token']!=expected_token or row['message_hash']!=digest(job['message']):
+                raise ValueError('Prenotazione Claude cambiata prima dell’invio')
+            if not same_session(identity,json.loads(row['identity'])):
+                raise ValueError('Identità Claude cambiata prima dell’invio')
+            updated=self.db.execute("UPDATE claude_timer_deliveries SET send_started=?,history_offset=?,stage=?,identity=? WHERE token=? AND stage='prepared' AND send_started IS NULL",
+                (time.time(),offset,'sending',json.dumps(identity),row['token']))
+            if updated.rowcount!=1:raise ValueError('Invio Claude già preso in carico: nessun secondo clic')
+            self.db.commit()
+        except BaseException:self.db.rollback();raise
         self.claimed_token = row['token']
         return True
 
     def reconcile(self, job, state):
         row = self.current(job)
+        if self.resolved(row):return {'action':'resolved_without_confirmation'}
         if row is None:
             return self.adopt_legacy(job, state)
         if row['stage'] == 'prepared' and row['send_started'] is None:
@@ -339,20 +353,28 @@ class Delivery:
         return None
 
     def confirm(self, job, row, receipt, legacy=False):
-        # A UUID can confirm only one reservation, including after a restart.
-        self.db.execute('UPDATE claude_timer_deliveries SET stage=?,receipt=?,receipt_uuid=? WHERE token=?',
-                        ('confirmed', json.dumps(receipt, ensure_ascii=False), receipt['uuid'], row['token']))
-        if not legacy:
-            sent = row['send_started'] if row['send_started'] is not None else receipt['at']
-            self.db.execute('UPDATE timers SET phase=?,due=?,last_sent=?,detail=? WHERE id=? AND version=?',
-                            ('idle' if job.get('repeat', True) else 'finished', sent + job['interval_seconds'], sent,
-                             'Consegna verificata nella cronologia Claude', job['id'], job['version']))
-        self.db.execute('INSERT INTO message_events(at,job_id,title,event,detail) VALUES (?,?,?,?,?)',
-                        (receipt['at'], job['id'], job['title'], 'Consegnato con ricevuta',
-                         'Messaggio umano ' + receipt['uuid']
-                         + ('; ricevuto durante il lavoro, accodamento e assorbimento verificati' if receipt.get('origin') == 'human_mid_turn' else '')
-                         + ('; Claude rimuove lo spazio finale' if receipt['match'] != 'exact' else '')))
-        self.db.commit()
+        self.db.execute('BEGIN IMMEDIATE')
+        try:
+            fresh=self.db.execute('SELECT * FROM claude_timer_deliveries WHERE token=?',(row['token'],)).fetchone()
+            if not fresh or fresh['job_id']!=job['id']:raise ValueError('Prenotazione Claude non corrispondente')
+            row=dict(fresh)
+            if self.resolved(row):raise ValueError('Tentativo risolto senza conferma: nessuna ricevuta associabile')
+            if row['receipt_uuid']:
+                if row['receipt_uuid']!=receipt['uuid']:raise ValueError('Tentativo già confermato con un’altra ricevuta')
+                self.db.rollback();return
+            self.db.execute('UPDATE claude_timer_deliveries SET stage=?,receipt=?,receipt_uuid=? WHERE token=?',
+                ('confirmed',json.dumps(receipt,ensure_ascii=False),receipt['uuid'],row['token']))
+            if not legacy:
+                sent=row['send_started'] if row['send_started'] is not None else receipt['at']
+                self.db.execute('UPDATE timers SET phase=?,due=?,last_sent=?,detail=? WHERE id=? AND version=?',
+                    ('idle' if job.get('repeat',True) else 'finished',sent+job['interval_seconds'],sent,
+                     'Consegna verificata nella cronologia Claude',row['job_id'],row['version']))
+            self.db.execute('INSERT INTO message_events(at,job_id,title,event,detail) VALUES(?,?,?,?,?)',
+                (receipt['at'],job['id'],job['title'],'Consegnato con ricevuta','Messaggio umano '+receipt['uuid']
+                 +('; ricevuto durante il lavoro, accodamento e assorbimento verificati' if receipt.get('origin')=='human_mid_turn' else '')
+                 +('; Claude rimuove lo spazio finale' if receipt['match']!='exact' else '')))
+            self.db.commit()
+        except BaseException:self.db.rollback();raise
 
     def adopt_legacy(self, job, state):
         if state['version'] != job['version'] or not state.get('last_sent'):

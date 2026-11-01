@@ -145,11 +145,11 @@ def tick(store=None, bridge=None, now=None, metadata=thread_metadata, observe=ob
             config = bridge.config_reader()
             state = store.prepare(job, now)
             verification = verification_request(job, db, now)
-            pending = db.execute("""SELECT c.*, l.stage, l.history_path, l.scan_offset, l.status_at_claim, l.initial_offset, l.receipt_revision
+            pending = next((row for row in db.execute("""SELECT c.*, l.stage, l.history_path, l.scan_offset, l.status_at_claim, l.initial_offset, l.receipt_revision
                 FROM connector_deliveries c LEFT JOIN local_codex_deliveries l ON c.token=l.token
                 WHERE c.job_id=? AND c.confirmed_at IS NULL
                   AND COALESCE(l.stage,'')!='cancelled_before_send'
-                ORDER BY c.reserved_at LIMIT 1""", (job["id"],)).fetchone()
+                ORDER BY c.reserved_at""", (job["id"],)) if not bridge.resolved(row)),None)
             if pending:
                 pending = dict(pending)
                 if pending["stage"] in {"sending", "awaiting_receipt"}:
@@ -174,6 +174,7 @@ def tick(store=None, bridge=None, now=None, metadata=thread_metadata, observe=ob
                         receipt_path = ROOT / "logs" / f"codex-local-receipt-{pending['token']}.json"
                         receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
                         result = bridge.confirm(pending["token"], f"local_history:{receipt['byte_offset']}:{receipt['record']['payload'].get('id')}", now)
+                        if result.get('action')!='confirmed':return result
                         db.execute("UPDATE local_codex_deliveries SET stage='confirmed' WHERE token=?", (pending["token"],)); db.commit()
                         audit("confirmed", token=pending["token"], job=job["id"], version=pending["version"], thread_id=pending["thread_id"], status_at_claim=pending["status_at_claim"], receipt_file=str(receipt_path))
                         store.recover(job, now)

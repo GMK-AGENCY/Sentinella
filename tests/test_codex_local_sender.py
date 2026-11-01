@@ -27,6 +27,20 @@ class Button:
 
 
 class LocalSenderTests(unittest.TestCase):
+    def test_acknowledged_old_draft_is_not_reconciled_from_a_future_message(self):
+        from delivery_recovery import ensure_schema
+        self.tick(2000,lambda *_:{'action':'drafted'})
+        token=self.store.db.execute('SELECT token FROM local_codex_deliveries').fetchone()[0]
+        ensure_schema(self.store.db)
+        self.store.db.execute('INSERT INTO legacy_delivery_resolutions VALUES(?,?,?,?,?,?,?,?,?)',
+            (token,'codex','thread-1',self.job['id'],self.job['version'],2010,1800,3600,'future_only'))
+        self.store.db.execute("UPDATE timers SET phase='idle',due=3600,detail='Future only'")
+        self.store.db.commit();self.append(self.job['message'],at=2020)
+        self.assertEqual('idle',self.tick(2030,lambda *_:self.fail('No old draft send'))['action'])
+        self.assertEqual('drafted',self.store.db.execute('SELECT stage FROM local_codex_deliveries').fetchone()[0])
+        self.assertIsNone(self.store.db.execute('SELECT confirmed_at FROM connector_deliveries').fetchone()[0])
+        self.assertEqual(3600,self.store.rows()[0]['due'])
+
     def test_archive_move_after_invoke_reconciles_same_id_without_resend(self):
         button=Button()
         self.tick(2000,lambda *_:{'action':'drafted'})

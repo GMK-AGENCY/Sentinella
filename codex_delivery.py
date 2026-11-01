@@ -43,6 +43,10 @@ class Delivery:
                 and job.get("transport") == "codex_app"
                 and job.get("thread_id") and job.get("enabled")]
 
+    def resolved(self, row):
+        from delivery_recovery import resolution_tokens
+        return row['token'] in resolution_tokens(self.store,'codex',row['thread_id'])
+
     def plan(self, now=None):
         now = time.time() if now is None else now
         config = self.config_reader()
@@ -54,7 +58,7 @@ class Delivery:
         for job in self.jobs():
             state = self.store.prepare(job, now)
             if state["phase"] == "uncertain":
-                pending.extend(dict(row) for row in self.store.db.execute("SELECT token,job_id,thread_id,message_hash,reserved_at FROM connector_deliveries WHERE job_id=? AND version=? AND confirmed_at IS NULL", (job["id"], job["version"])))
+                pending.extend(dict(row) for row in self.store.db.execute("SELECT token,job_id,thread_id,message_hash,reserved_at FROM connector_deliveries WHERE job_id=? AND version=? AND confirmed_at IS NULL", (job["id"], job["version"])) if not self.resolved(row))
             if state["phase"] in {"uncertain", "finished"} or state["due"] > now:
                 continue
             if blocked:
@@ -68,6 +72,7 @@ class Delivery:
         row = self.store.db.execute("SELECT * FROM connector_deliveries WHERE token=?", (token,)).fetchone()
         if row is None or row["confirmed_at"] is not None:
             return {"action": "not_ready"}
+        if self.resolved(row):return {'action':'resolved_without_confirmation'}
         if action_block_reason(self.config_reader()) or not self.running():
             return {"action": "paused"}
         job = next((j for j in self.jobs() if j["id"] == row["job_id"] and j["version"] == row["version"]), None)
@@ -112,18 +117,25 @@ class Delivery:
 
     def confirm(self, token, receipt, now=None):
         now = time.time() if now is None else now
-        record = self.store.db.execute("SELECT * FROM connector_deliveries WHERE token=?", (token,)).fetchone()
-        if record is None or record["confirmed_at"] is not None:
-            return {"action": "unknown_or_already_confirmed"}
-        if not receipt or len(receipt) > 2000:
-            raise ValueError("Ricevuta di messaggio letto in chat obbligatoria")
-        job = next((j for j in self.jobs_reader() if j["id"] == record["job_id"]), None)
-        self.store.db.execute("UPDATE connector_deliveries SET confirmed_at=?,receipt=? WHERE token=?", (now, receipt, token))
-        if job and job["version"] == record["version"]:
-            self.store.db.execute("UPDATE timers SET phase=?,detail=?,due=?,last_sent=? WHERE id=? AND version=? AND phase='uncertain'", ("idle" if job.get("repeat", True) else "finished", "Messaggio ricevuto in chat tramite collegamento Codex", now + job["interval_seconds"], now, job["id"], job["version"]))
-        self.store.db.commit()
-        if job:
-            self.store.event(job, "Consegnato con ricevuta", "Messaggio utente autentico verificato nella chat", at=now)
+        db=self.store.db;db.execute('BEGIN IMMEDIATE')
+        try:
+            record=db.execute("SELECT * FROM connector_deliveries WHERE token=?", (token,)).fetchone()
+            if record is None or record['confirmed_at'] is not None:
+                db.rollback();return {'action':'unknown_or_already_confirmed'}
+            if self.resolved(record):
+                db.rollback();return {'action':'resolved_without_confirmation'}
+            if not receipt or len(receipt)>2000:raise ValueError('Ricevuta di messaggio letto in chat obbligatoria')
+            job=next((j for j in self.jobs_reader() if j['id']==record['job_id']),None)
+            db.execute('UPDATE connector_deliveries SET confirmed_at=?,receipt=? WHERE token=?',(now,receipt,token))
+            if job and job['version']==record['version']:
+                db.execute("UPDATE timers SET phase=?,detail=?,due=?,last_sent=? WHERE id=? AND version=? AND phase='uncertain'",
+                    ('idle' if job.get('repeat',True) else 'finished','Messaggio ricevuto in chat tramite collegamento Codex',
+                     now+job['interval_seconds'],now,job['id'],job['version']))
+            if job:
+                db.execute('INSERT INTO message_events(at,job_id,title,event,detail) VALUES(?,?,?,?,?)',
+                    (now,job['id'],job['title'],'Consegnato con ricevuta','Messaggio utente autentico verificato nella chat'))
+            db.commit()
+        except BaseException:db.rollback();raise
         return {"action": "confirmed", "job": record["job_id"], "last_sent": now}
 
     def confirm_readback(self, token, readback, now=None):
@@ -131,6 +143,7 @@ class Delivery:
         record = self.store.db.execute("SELECT * FROM connector_deliveries WHERE token=?", (token,)).fetchone()
         if record is None or readback.get("thread", {}).get("id") != record["thread_id"]:
             return {"action": "receipt_mismatch"}
+        if self.resolved(record):return {'action':'resolved_without_confirmation'}
         for turn in readback.get("turns", []):
             for item in turn.get("items", []):
                 observed_at = float(turn.get("startedAt") or 0)

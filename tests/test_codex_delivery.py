@@ -37,6 +37,22 @@ class ConnectorDeliveryTests(unittest.TestCase):
         self.bridge.running = lambda: False
         self.assertEqual(self.bridge.plan(2000)["action"], "paused")
 
+    def test_resolved_old_token_cannot_be_sent_or_confirmed_by_a_future_identical_message(self):
+        from delivery_recovery import ensure_schema
+        claim=self.bridge.claim('regia','v1','idle',2000);token=claim['token']
+        ensure_schema(self.store.db)
+        self.store.db.execute('INSERT INTO legacy_delivery_resolutions VALUES(?,?,?,?,?,?,?,?,?)',
+            (token,'codex','thread-1','regia','v1',2010,1800,3600,'future_only'));self.store.db.commit()
+        before=self.store.rows()[0].copy()
+        data={'thread':{'id':'thread-1'},'turns':[{'id':'future','startedAt':3000,
+            'items':[{'type':'userMessage','id':'future-message','content':[{'type':'text','text':'Saved message'}]}]}]}
+        self.assertEqual('resolved_without_confirmation',self.bridge.ready(token)['action'])
+        self.assertEqual([],self.bridge.plan(5000)['pending_confirmation'])
+        self.assertEqual('resolved_without_confirmation',self.bridge.confirm_readback(token,data,3010)['action'])
+        self.assertEqual('resolved_without_confirmation',self.bridge.confirm(token,'future-proof',3010)['action'])
+        self.assertIsNone(self.store.db.execute('SELECT confirmed_at FROM connector_deliveries WHERE token=?',(token,)).fetchone()[0])
+        self.assertEqual(before,self.store.rows()[0])
+
     def test_busy_chat_is_waiting_not_a_false_send(self):
         self.assertEqual(self.bridge.claim("regia", "v1", "active", 2000)["action"], "waiting_for_chat")
         state = self.store.rows()[0]
