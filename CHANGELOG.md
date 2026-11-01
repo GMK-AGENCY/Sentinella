@@ -6,6 +6,7 @@
 - Riconoscimento del campo messaggio anche attraverso ruolo, struttura multilinea, documento nativo e comandi del compositore. Il nuovo segnaposto «Lavora con ChatGPT» non impedisce più la preparazione. Campi multipli, documenti incorporati e bozze personali restano protetti.
 - Errori di invio persistenti nel registro e nella dashboard, anche con una prenotazione già aperta: un'interfaccia non riconosciuta non viene mostrata come una normale preparazione o come un elenco vuoto.
 - Preservati timer, versioni delle programmazioni e prenotazioni; la consegna resta confermata esclusivamente dal messaggio utente autentico nella cronologia della chat.
+- Una prenotazione di una versione precedente, ancora ferma prima della preparazione, non blocca la nuova scadenza: viene conservata come annullata prima dell'invio. Le bozze già preparate e gli invii incerti non vengono ritentati né cancellati.
 
 ## 0.2.19
 

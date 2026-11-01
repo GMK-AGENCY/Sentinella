@@ -147,7 +147,9 @@ def tick(store=None, bridge=None, now=None, metadata=thread_metadata, observe=ob
             verification = verification_request(job, db, now)
             pending = db.execute("""SELECT c.*, l.stage, l.history_path, l.scan_offset, l.status_at_claim, l.initial_offset, l.receipt_revision
                 FROM connector_deliveries c LEFT JOIN local_codex_deliveries l ON c.token=l.token
-                WHERE c.job_id=? AND c.confirmed_at IS NULL ORDER BY c.reserved_at LIMIT 1""", (job["id"],)).fetchone()
+                WHERE c.job_id=? AND c.confirmed_at IS NULL
+                  AND COALESCE(l.stage,'')!='cancelled_before_send'
+                ORDER BY c.reserved_at LIMIT 1""", (job["id"],)).fetchone()
             if pending:
                 pending = dict(pending)
                 if pending["stage"] in {"sending", "awaiting_receipt"}:
@@ -173,6 +175,14 @@ def tick(store=None, bridge=None, now=None, metadata=thread_metadata, observe=ob
                 if pending["stage"] not in {"reserved", "drafted"}:
                     return {"action": "uncertain", "job": job["id"], "reason": "Prenotazione preesistente: solo riconciliazione, nessun reinvio"}
                 if pending["version"] != job["version"]:
+                    if pending['stage']=='reserved':
+                        # Invoke can only follow the persisted drafted stage.
+                        # No send was attempted. A crash may have left a draft,
+                        # so leave the composer untouched; a new job will treat
+                        # any nonmatching text as a protected personal draft.
+                        db.execute("UPDATE local_codex_deliveries SET stage='cancelled_before_send' WHERE token=? AND stage='reserved'",(pending['token'],));db.commit()
+                        audit('cancelled_before_send',token=pending['token'],job=job['id'],version=pending['version'],replacement_version=job['version'])
+                        return {'action':'superseded_before_send','job':job['id'],'token':pending['token']}
                     return {"action": "changed_or_disabled", "job": job["id"], "reason": "Bozza di una versione precedente: nessun invio"}
                 if 'bozza scomparsa' in state.get('detail', '').casefold():
                     return {'action': 'uncertain', 'job': job['id'], 'reason': state['detail']}
