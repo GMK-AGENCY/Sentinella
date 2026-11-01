@@ -41,6 +41,9 @@ def main():
             diagnosis=json.loads(checked([str(exe),'--diagnose'],install,20)['stdout'].strip().splitlines()[-1])
             if not diagnosis.get('frozen') or not diagnosis.get('dependencies_loaded'):
                 raise RuntimeError('Installed application is missing its embedded runtime')
+            ui=json.loads(checked([str(exe),'--smoke-ui'],install,25)['stdout'].strip().splitlines()[-1])
+            if len(ui.get('ui_sections',[]))<6 or not ui.get('supervisor_paused'):
+                raise RuntimeError('Installed application interface is incomplete')
             worker=json.loads(checked([str(exe),'--process','adapter_entry','native_delivery_worker.py'],install)['stdout'].strip().splitlines()[-1])
             if worker.get('action')!='idle':raise RuntimeError('Installed native worker failed')
             bridge=install/'_internal/assets/native_claude_bridge'
@@ -51,7 +54,8 @@ def main():
             for name,body in originals.items():
                 if (data/name).read_bytes()!=body:raise RuntimeError('Install/uninstall altered private data: '+name)
             report={'installed':True,'frozen_runtime':True,'native_worker':worker['action'],
-                    'bridge_assets':True,'uninstalled':True,'private_data_preserved':True,'gui_started':False}
+                    'bridge_assets':True,'uninstalled':True,'private_data_preserved':True,
+                    'gui_started':True,'ui_sections':ui['ui_sections']}
             (build/'installer-verification.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
             print(json.dumps(report),flush=True)
         finally:

@@ -1,4 +1,4 @@
-// Owned sender only. No model call, tools, approval handlers or recipient install.
+// Owned sender only. No model/file tool calls, approval handlers or recipient install.
 export function register(on) {
   on('session.start', async ($, e, next) => {
     await $.command.register({name:'sentinella-status',description:'Verifica il collegamento locale'});

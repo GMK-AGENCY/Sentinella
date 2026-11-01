@@ -6,7 +6,6 @@ explicit. Only the separately reconciled native user record proves delivery.
 import json
 import os
 from pathlib import Path
-import shutil
 import time
 import uuid
 
@@ -57,7 +56,9 @@ def codex_executable(config, binding=None):
         if binding is None:raise
         roots=[]  # Receipts may be read after intentional desktop closure.
     candidates=[p for root in roots for p in (root/'resources/codex.exe',root/'resources/bin/codex.exe') if p.is_file()]
-    executable=str(candidates[0]) if candidates else shutil.which('codex')
+    # A PATH alias can be the GUI launcher. Never start an unidentified app to
+    # probe its role; only the desktop's known bundled CLI is eligible.
+    executable=str(candidates[0]) if candidates else None
     if not executable or Path(executable).suffix.lower()!='.exe' or not Path(executable).is_file():
         raise ProtocolError('CLI Codex compatibile non disponibile: aggiorna Codex')
     return executable

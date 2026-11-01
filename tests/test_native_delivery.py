@@ -10,7 +10,7 @@ from delivery_journal import Journal,digest
 from message_engine import TimerStore
 from native_delivery import cycle,worker_lock,session_authority,work_due
 from native_receipts import claude_receipt,codex_page_receipt
-from native_transports import ClaudeTransport,CodexTransport,NotDispatched,ChatBusy
+from native_transports import ClaudeTransport,CodexTransport,NotDispatched,ChatBusy,codex_executable
 
 
 class NativeDeliveryTests(unittest.TestCase):
@@ -159,6 +159,26 @@ class NativeDeliveryTests(unittest.TestCase):
         with self.assertRaises(NotDispatched):native.dispatch({})
         self.assertEqual(['thread/loaded/list'],[call.args[0] for call in native.client.rpc.call_args_list])
 
+    def test_missing_cli_never_starts_a_gui_alias_from_path(self):
+        desktop=Mock();desktop.info={'exe':str(self.root/'Codex.exe')}
+        with patch('native_transports.receiver_processes',return_value=[desktop]), \
+             patch('shutil.which',return_value=str(self.root/'WindowsApps/codex.exe')) as path_alias, \
+             patch('native_transports.OwnedJsonProcess') as process:
+            with self.assertRaisesRegex(RuntimeError,'CLI Codex compatibile non disponibile'):
+                CodexTransport(self.job,self.config,self.root)
+        path_alias.assert_not_called();process.assert_not_called()
+
+    def test_receipt_recovery_uses_saved_cli_or_current_bundle_only(self):
+        saved=self.root/'saved-cli.exe';saved.write_bytes(b'previously-qualified-fixture')
+        with patch('native_transports.receiver_processes',side_effect=AssertionError('Bound CLI already known')):
+            self.assertEqual(str(saved),codex_executable(self.config,{'cli_executable':str(saved)}))
+        saved.unlink()
+        with patch('native_transports.receiver_processes',return_value=[]), \
+             patch('native_transports.OwnedJsonProcess') as process:
+            with self.assertRaisesRegex(RuntimeError,'CLI Codex compatibile non disponibile'):
+                CodexTransport(self.job,self.config,self.root,readonly=True,binding={'cli_executable':str(saved)})
+        process.assert_not_called()
+
     def test_reconcile_only_never_creates_a_due_attempt(self):
         result=cycle(self.store,self.root,lambda:self.config,lambda:self.jobs,self.factory,1061,reconcile_only=True)
         self.assertEqual('idle',result['action']);self.assertEqual([],self.sent)
@@ -217,6 +237,33 @@ class NativeReceiptTests(unittest.TestCase):
     def test_truncated_history_is_not_a_negative_receipt(self):
         self.binding['history_offset']=100;self.attempt['binding_json']=json.dumps(self.binding)
         with self.assertRaises(ValueError):claude_receipt(self.attempt,1002)
+
+    def test_large_unrelated_output_does_not_hide_the_receipt(self):
+        self.write({'type':'assistant','message':{'content':'x'*(3*1024*1024)}},self.record)
+        receipt,cursor=claude_receipt(self.attempt,1002)
+        self.assertEqual(self.physical,receipt['physical_id'])
+        self.assertEqual(self.path.stat().st_size,cursor)
+
+    def test_scan_budget_advances_past_one_large_record_between_cycles(self):
+        self.write({'type':'assistant','message':{'content':'x'*(9*1024*1024)}},self.record)
+        receipt,cursor=claude_receipt(self.attempt,1002)
+        self.assertIsNone(receipt);self.assertGreater(cursor,8*1024*1024)
+        self.binding['history_offset']=cursor;self.attempt['binding_json']=json.dumps(self.binding)
+        self.assertEqual(self.physical,claude_receipt(self.attempt,1002)[0]['physical_id'])
+
+    def test_oversized_or_incomplete_record_is_never_consumed_as_a_receipt(self):
+        self.path.write_bytes(b'x'*(16*1024*1024))
+        with self.assertRaisesRegex(ValueError,'troppo grande'):claude_receipt(self.attempt,1002)
+        self.path.write_bytes(b'{"type":"assistant","message":"'+b'x'*(3*1024*1024))
+        self.assertEqual((None,0),claude_receipt(self.attempt,1002))
+
+    def test_malformed_unrelated_data_is_ignored_but_correlated_date_is_rejected(self):
+        self.write([],{'type':'assistant','origin':None},self.record)
+        self.assertEqual(self.physical,claude_receipt(self.attempt,1002)[0]['physical_id'])
+        for value in (None,1,'invalid','1970-01-01T00:16:41'):
+            with self.subTest(value=value):
+                self.write({**self.record,'timestamp':value})
+                with self.assertRaisesRegex(ValueError,'Data della ricevuta'):claude_receipt(self.attempt,1002)
     def test_two_native_receipts_for_one_attempt_raise(self):
         self.write(self.record,{**self.record,'uuid':str(uuid.uuid4())})
         with self.assertRaises(ValueError):claude_receipt(self.attempt,1002)

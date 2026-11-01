@@ -1,5 +1,16 @@
 # Modifiche
 
+## 0.2.22
+
+- Invii periodici gestiti dal programma tramite i collegamenti nativi locali di Codex e Claude, identificando la sessione per ID. Nessuna selezione di finestre, digitazione nel compositore o dipendenza da chat e sveglie di controllo.
+- Registro persistente con prenotazione prima dell'effetto, un solo tentativo aperto per sessione e avanzamento del timer soltanto dopo una ricevuta autentica. Arresti del mittente e risposte perse avviano la riconciliazione del medesimo tentativo, senza reinvio automatico.
+- Rispettate separatamente le opzioni di invio mentre la chat lavora e mentre il PC è in uso. Lo stato della chat viene verificato senza acquisire un turno: dati incompleti o incompatibili non vengono interpretati come inattività.
+- Stato esplicito per consegne precedenti ancora in verifica, anche dopo la modifica di una programmazione. «Ultima consegna» mostra soltanto eventi con ricevuta; accodamento e ricezione restano distinti.
+- Azione con conferma per ripartire dai soli invii futuri dopo un'incertezza storica. Conserva il vecchio tentativo senza segnarlo come ricevuto, insieme a testo, pause, bozze e ultima conferma.
+- Lettura delle ricevute Claude compatibile con record di output fino a 16 MiB, con scansione limitata per ciclo e avanzamento persistente. Dati correlati non validi non possono confermare una consegna.
+- Verifica preventiva delle autorizzazioni nel solo mittente Claude, senza dialoghi né preapprovazioni. Permessi e limitazioni del destinatario restano vincolanti; le combinazioni non qualificate sono indicate esplicitamente.
+- Qualifica dell'installer sul runner Windows: installazione reale, apertura delle sezioni dell'interfaccia, supervisore in pausa, runtime incorporato, asset e disinstallazione con conservazione dei dati personali.
+
 ## 0.2.21
 
 - Il browser incorporato in Codex non può più sostituire il titolo della chat con quello della pagina web aperta. Questo eliminava il riconoscimento di una chat già selezionata e provocava tentativi di selezione ripetuti senza inviare.
