@@ -25,7 +25,8 @@ def receiver_processes(app, config):
     configured=config.get('apps',{}).get(app,{}).get('process_path')
     if not configured: raise ProtocolError('Applicazione non configurata: esegui Rileva applicazioni')
     found=[]
-    for proc in psutil.process_iter(['exe','cmdline','ppid']):
+    # Do not read every process's command line just to find an application.
+    for proc in psutil.process_iter(['exe']):
         try:
             if proc.info['exe'] and executable_matches(proc.info['exe'],configured): found.append(proc)
         except (psutil.Error,OSError): continue
@@ -38,7 +39,7 @@ class CodexTransport:
         self.client=None
         self.job=job
         # Prefer the CLI shipped with the running app over an unrelated PATH version.
-        roots=[] if readonly else [Path(p.exe()).parent for p in receiver_processes('codex',config)]
+        roots=[] if readonly else sorted({Path(p.info['exe']).parent for p in receiver_processes('codex',config)})
         candidates=[p for root in roots for p in (root/'resources/codex.exe',root/'resources/bin/codex.exe') if p.is_file()]
         executable=(binding or {}).get('cli_executable') if readonly else (str(candidates[0]) if candidates else shutil.which('codex'))
         if not executable: raise ProtocolError('CLI Codex compatibile non disponibile: aggiorna Codex')
@@ -111,12 +112,16 @@ class ClaudeTransport:
         identity=locate(job)
         runtime=str(uuid.UUID(identity['session']))
         owners=[]
-        desktop_ids={p.pid for p in desktop}
-        for proc in psutil.process_iter(['exe','cmdline','ppid']):
+        children={}
+        for parent in desktop:
             try:
-                args=proc.info['cmdline'] or []
+                for proc in parent.children():children[proc.pid]=proc
+            except psutil.Error:continue
+        for proc in children.values():
+            try:
+                args=proc.cmdline()
                 bound=('--resume='+runtime in args or any(arg=='--resume' and args[i+1]==runtime for i,arg in enumerate(args[:-1])))
-                if proc.info['ppid'] in desktop_ids and bound: owners.append(proc)
+                if bound:owners.append(proc)
             except psutil.Error: continue
         if len(owners)!=1: raise ProtocolError('Sessione Claude non aperta nel desktop: nessun invio')
         self.executable=owners[0].exe()

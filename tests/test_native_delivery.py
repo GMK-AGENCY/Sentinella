@@ -127,6 +127,21 @@ class NativeDeliveryTests(unittest.TestCase):
         result=cycle(self.store,self.root,lambda:self.config,lambda:self.jobs,self.factory,1061,reconcile_only=True)
         self.assertEqual('idle',result['action']);self.assertEqual([],self.sent)
 
+    def test_claude_owner_discovery_only_reads_desktop_children(self):
+        runtime=str(uuid.uuid4());history=self.root/'history.jsonl';history.write_text('')
+        parent=Mock();owner=Mock();owner.pid=123
+        parent.children.return_value=[owner]
+        owner.cmdline.return_value=['owned-cli','--resume='+runtime,'--permission-mode','acceptEdits']
+        owner.exe.return_value='owned-cli'
+        identity={'session':runtime,'index':str(self.root/'index.json'),'history':str(history)}
+        job={**self.job,'app':'claude','session_id':str(uuid.uuid4())}
+        with patch('native_transports.receiver_processes',return_value=[parent]), \
+             patch('claude_delivery.locate',return_value=identity), \
+             patch('native_transports.psutil.process_iter',side_effect=AssertionError('No global PPID scan')):
+            native=ClaudeTransport(job,{},self.root)
+        self.assertEqual(runtime,native.binding['runtime_id'])
+        parent.children.assert_called_once()
+
 
 class NativeReceiptTests(unittest.TestCase):
     def setUp(self):
