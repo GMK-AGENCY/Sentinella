@@ -4,6 +4,7 @@
 
 - Riconciliazione Codex della singola nuova riga finale aggiunta al testo nella versione qualificata: hash osservato e atteso restano distinti e la ricevuta originale viene conservata. Ogni altra variazione resta bloccante; nessun reinvio.
 - Il journal ricontrolla questa equivalenza dal messaggio immutabile e dall'item nativo prima di aggiornare il timer. Le ricevute precedenti alla consegna vengono rifiutate.
+- Una consegna ancora in coda indica da quanto tempo attende, che non è stata ricevuta e che gli invii successivi sono sospesi. Se l'attesa raggiunge l'intervallo configurato, la panoramica la segnala come avviso.
 - Questa correzione non abilita né qualifica lo steering autonomo delle sessioni desktop durante turni lunghi.
 
 ## 0.2.22
