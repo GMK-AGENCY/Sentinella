@@ -45,6 +45,21 @@ class CompatibilityTests(unittest.TestCase):
         with patch('chat_desktop.native_document') as document:
             self.assertEqual(message_editors([edit],'codex'),[]);document.assert_not_called()
 
+    def test_empty_idle_composer_uses_voice_only_as_anchor_then_prepares_literal_message(self):
+        for label in ('Avvia chat vocale','Start voice chat'):
+            edit=self.editor();edit.GetValuePattern.return_value.Value=''
+            voice=Mock(ControlTypeName='ButtonControl',Name=label,IsEnabled=True)
+            job=dict(app='codex',title='Test',group='Recenti',message='Literal',send_when_active=True)
+            with patch('chat_desktop.native_document',return_value=object()), \
+                 patch('chat_desktop.walk',return_value=[edit,voice]), \
+                 patch('chat_desktop.snapshot',return_value=([edit],'Test')), \
+                 patch('chat_desktop.entries',return_value=[({**job,'ambiguous':False},object())]), \
+                 patch('chat_desktop.send_block_reason',return_value=None):
+                result=step({'idle_seconds_before_actions':0},job,{},live_guard=lambda:None)
+            self.assertEqual(result['action'],'drafted')
+            edit.GetValuePattern.return_value.SetValue.assert_called_once_with('Literal',waitTime=0)
+            voice.GetInvokePattern.assert_not_called()
+
     def test_two_semantic_composers_are_never_arbitrarily_selected(self):
         editors=[self.editor(),self.editor('Another field')]
         send=Node(ControlTypeName='ButtonControl',Name='Send')

@@ -318,9 +318,10 @@ def message_editors(controls, app):
                 local = walk(parent, limit=130, seconds=.5, max_depth=9)
                 if len(local) >= 130:
                     break
-                # An empty busy composer shows Stop instead of Send. Stop is
-                # only a structural anchor here and is never invoked.
-                anchors = SEND | {'interrompi','stop','stop response','interrompi risposta'}
+                # Empty composers show Stop while busy, Voice while idle.
+                # These are structural anchors only and are never invoked.
+                anchors = SEND | {'interrompi','stop','stop response','interrompi risposta',
+                                  'avvia chat vocale','start voice chat','start voice mode','avvia modalità vocale'}
                 if any(c.ControlTypeName == 'ButtonControl' and normalize(c.Name) in anchors for c in local):
                     semantic.append(edit)
                     break
