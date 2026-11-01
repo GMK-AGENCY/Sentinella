@@ -8,7 +8,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = """adapter_entry agenda_view app_icon app_version approval_desktop approval_policy approval_simulation approvals_panel
-automation_policy bounded_process chat_catalog chat_identity chat_desktop claude_delivery claude_popouts codex_delivery codex_local_sender codex_permission_selftest delivery_journal native_process native_receipts native_transports native_delivery native_delivery_worker
+automation_policy bounded_process chat_catalog chat_identity chat_desktop claude_delivery claude_popouts codex_delivery codex_local_sender codex_permission_selftest delivery_journal native_process native_receipts native_transports native_delivery native_delivery_worker native_chat_state native_claude_state
 config_store dashboard_model default_message_templates desktop_identity file_recovery input_activity loop_diagnostics message_engine message_library message_templates message_worker
 messages_panel notification_backend notification_core notification_watch operations_view performance_check
 polling_policy question_desktop question_supervisor schedule_display sentinel_launcher service_recovery settings_panel startup_manager
@@ -19,7 +19,7 @@ def public_files(root=ROOT):
     root = Path(root)
     names = [*(name + ".py" for name in MODULES), "README.md", "SECURITY.md", "CHANGELOG.md", "LICENSE", "CONTRIBUTING.md",
              "requirements.txt", ".gitignore", ".gitattributes", "Avvia Sentinella.cmd", "Installa Sentinella.cmd",
-             ".github/workflows/test.yml", ".github/ISSUE_TEMPLATE/bug_report.yml", ".github/ISSUE_TEMPLATE/feature_request.yml", "tools/build_release.py", "tools/build_windows.py", "tools/check_python.py", "requirements-build.txt", "installer/Sentinella.iss", "assets/sentinella.ico", "assets/sentinella.png"]
+             ".github/workflows/test.yml", ".github/ISSUE_TEMPLATE/bug_report.yml", ".github/ISSUE_TEMPLATE/feature_request.yml", "tools/build_release.py", "tools/build_windows.py", "tools/check_python.py", "tools/verify_installer.py", "requirements-build.txt", "installer/Sentinella.iss", "assets/sentinella.ico", "assets/sentinella.png"]
     names += [p.relative_to(root).as_posix() for p in sorted((root / "tests").glob("test_*.py"))]
     names += [p.relative_to(root).as_posix() for p in sorted((root/'assets/native_claude_bridge').rglob('*')) if p.is_file()]
     names += ["tests/native_controls_fixture.py", "tests/verify_native_controls.py", "tests/verify_command_fixture.py", "tests/smoke_clean_install.py", "tools/prepare_github.py", "assets/licenses/PyWinRT-LICENSE", "assets/licenses/Tcl-LICENSE", "assets/licenses/SOURCES.md"]

@@ -63,6 +63,8 @@ jobs:
           Get-ChildItem -Path dist/Sentinella-*.zip,dist/Sentinella-*-Setup.exe -File |
             ForEach-Object { '{0}  {1}' -f (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLower(), $_.Name } |
             Set-Content -Encoding utf8 "dist/Sentinella-$version-SHA256SUMS.txt"
+      - name: Collauda installazione e disinstallazione isolate
+        run: python tools/verify_installer.py
       - name: Conserva i pacchetti verificati
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

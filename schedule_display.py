@@ -64,6 +64,8 @@ def _schedule_display(job, stored, config, now, waiting_reason=None):
     if phase == "finished":
         return {**result, "status": "Completato", "next": "Nessun altro invio"}
     detail = result["detail"].casefold()
+    if 'verifica stato chat in corso' in detail:
+        return {**result,'status':'In attesa','next':'Verifica dello stato della chat','hint':'Controllo automatico'}
     if "chat in elaborazione" in detail:
         return {**result, "status": "Attende la chat", "next": "Quando è libera"}
     if "bozza presente" in detail or "campo già compilato" in detail:

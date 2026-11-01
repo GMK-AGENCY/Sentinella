@@ -10,7 +10,7 @@ from delivery_journal import Journal,digest
 from message_engine import TimerStore
 from native_delivery import cycle,worker_lock,session_authority,work_due
 from native_receipts import claude_receipt,codex_page_receipt
-from native_transports import ClaudeTransport,CodexTransport,NotDispatched
+from native_transports import ClaudeTransport,CodexTransport,NotDispatched,ChatBusy
 
 
 class NativeDeliveryTests(unittest.TestCase):
@@ -119,6 +119,7 @@ class NativeDeliveryTests(unittest.TestCase):
 
     def test_codex_rechecks_authority_after_readiness_before_queue_effect(self):
         native=CodexTransport.__new__(CodexTransport);native.client=Mock()
+        native.job={'send_when_active':True}
         native.client.rpc.return_value={'data':[]};native.guard=lambda:False
         with self.assertRaises(NotDispatched):native.dispatch({})
         self.assertEqual(['thread/loaded/list'],[call.args[0] for call in native.client.rpc.call_args_list])
@@ -141,6 +142,14 @@ class NativeDeliveryTests(unittest.TestCase):
             native=ClaudeTransport(job,{},self.root)
         self.assertEqual(runtime,native.binding['runtime_id'])
         parent.children.assert_called_once()
+
+    def test_busy_chat_defers_without_fault_or_due_reset(self):
+        result=cycle(self.store,self.root,lambda:self.config,lambda:self.jobs,
+            factory=Mock(side_effect=ChatBusy('Chat in elaborazione: attendo che sia libera')),now=1061)
+        self.assertEqual('waiting_for_chat',result['results'][0]['action'])
+        self.assertEqual(0,self.store.db.execute('SELECT count(*) FROM message_failures').fetchone()[0])
+        self.assertEqual((1060,'idle'),tuple(self.store.db.execute('SELECT due,phase FROM timers').fetchone()))
+        self.assertEqual(0,self.store.db.execute('SELECT count(*) FROM native_attempts').fetchone()[0])
 
 
 class NativeReceiptTests(unittest.TestCase):

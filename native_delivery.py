@@ -118,7 +118,7 @@ def reconcile(attempt, journal, config, root):
 
 
 def cycle(store, root, read_config, read_jobs, factory=None, now=None, recover=None, authorized=lambda:True, reconcile_only=False):
-    from native_transports import transport,NotDispatched
+    from native_transports import transport,NotDispatched,ChatBusy,ChatNotReady
     factory=factory or transport
     recover=recover or reconcile
     clock=time.time if now is None else lambda:now
@@ -179,8 +179,13 @@ def cycle(store, root, read_config, read_jobs, factory=None, now=None, recover=N
                 journal.transition(attempt['id'],'unknown',error,time.time())
             else:
                 if attempt:journal.transition(attempt['id'],'cancelled_before_dispatch',error,time.time())
-                store.fail(job,error,clock())
-            results.append({'action':'error','job':job['id'],'error':error})
+                if not isinstance(exc,NotDispatched):store.fail(job,error,clock())
+            if isinstance(exc,NotDispatched) and not isinstance(exc,ChatNotReady):store.fail(job,error,clock())
+            if isinstance(exc,ChatNotReady):
+                store.update(job,'idle',str(exc))
+                store.recover(job,clock())
+                results.append({'action':'waiting_for_chat' if isinstance(exc,ChatBusy) else 'checking_chat','job':job['id'],'reason':str(exc)})
+            else:results.append({'action':'error','job':job['id'],'error':error})
         finally:
             if client:client.close()
     return {'action':'checked' if results else 'idle','results':results}

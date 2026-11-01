@@ -4,6 +4,7 @@ An acknowledged queue/peer call is NOT a receipt. Capability failures remain
 explicit. Only the separately reconciled native user record proves delivery.
 """
 import json
+import os
 from pathlib import Path
 import shutil
 import time
@@ -20,6 +21,20 @@ class NotDispatched(ProtocolError):
     """Raised only before the transport's first send/queue effect."""
 
 
+class ChatNotReady(NotDispatched):
+    """Expected receiver activity/synchronization; defer without a failure."""
+
+
+class ChatBusy(ChatNotReady):
+    """A healthy receiver is busy: defer, without reporting a transport fault."""
+
+
+def require_idle(state):
+    if state.state=='active':raise ChatBusy('Chat in elaborazione: attendo che sia libera')
+    if state.state=='unknown' and state.code=='updating':raise ChatNotReady('Verifica stato chat in corso: '+state.reason)
+    if state.state!='idle':raise NotDispatched('Stato della chat da verificare: '+state.reason)
+
+
 def receiver_processes(app, config):
     from desktop_identity import executable_matches
     configured=config.get('apps',{}).get(app,{}).get('process_path')
@@ -34,20 +49,30 @@ def receiver_processes(app, config):
     return found
 
 
+def codex_executable(config, binding=None):
+    saved=(binding or {}).get('cli_executable')
+    if saved and Path(saved).is_file():return saved
+    try:roots=sorted({Path(p.info['exe']).parent for p in receiver_processes('codex',config)})
+    except ProtocolError:
+        if binding is None:raise
+        roots=[]  # Receipts may be read after intentional desktop closure.
+    candidates=[p for root in roots for p in (root/'resources/codex.exe',root/'resources/bin/codex.exe') if p.is_file()]
+    executable=str(candidates[0]) if candidates else shutil.which('codex')
+    if not executable or Path(executable).suffix.lower()!='.exe' or not Path(executable).is_file():
+        raise ProtocolError('CLI Codex compatibile non disponibile: aggiorna Codex')
+    return executable
+
+
 class CodexTransport:
     def __init__(self, job, config, root, readonly=False, binding=None):
         self.client=None
         self.job=job
         # Prefer the CLI shipped with the running app over an unrelated PATH version.
-        roots=[] if readonly else sorted({Path(p.info['exe']).parent for p in receiver_processes('codex',config)})
-        candidates=[p for root in roots for p in (root/'resources/codex.exe',root/'resources/bin/codex.exe') if p.is_file()]
-        executable=(binding or {}).get('cli_executable') if readonly else (str(candidates[0]) if candidates else shutil.which('codex'))
-        if not executable: raise ProtocolError('CLI Codex compatibile non disponibile: aggiorna Codex')
-        if not Path(executable).is_file():raise ProtocolError('CLI Codex della prenotazione non disponibile; nessun reinvio')
-        if not readonly and not job.get('send_when_active'):
-            raise ProtocolError('Stato della chat Codex non verificabile in background con questa versione; invio a chat libera non disponibile')
+        executable=codex_executable(config,binding if readonly else None)
+        home=str(Path((binding or {}).get('codex_home') or os.environ.get('CODEX_HOME',Path.home()/'.codex')).resolve())
         try:
-            self.client=OwnedJsonProcess([executable,'app-server','--listen','stdio://'],root)
+            self.client=OwnedJsonProcess([executable,'app-server','--listen','stdio://'],root,
+                env={**os.environ,'CODEX_HOME':home})
             initialized=self.client.rpc('initialize',{'clientInfo':{'name':'sentinella_native','version':'1.0.0'},
                 'capabilities':{'experimentalApi':True}})
             self.client.send({'method':'initialized','params':{}})
@@ -63,7 +88,8 @@ class CodexTransport:
                 queue=self.client.rpc('thread/queue/list',{'threadId':thread_id,'limit':1})
                 if not isinstance(queue.get('data'),list):raise ProtocolError('Coda Codex non compatibile: aggiorna il collegamento')
             self.binding={'app':'codex','logical_id':thread_id,'runtime_id':thread_id,'revision':1,
-                'cli_executable':executable,'server_version':initialized.get('userAgent')}
+                'cli_executable':executable,'server_version':initialized.get('userAgent'),'codex_home':home}
+            if not readonly:self.check_idle()
         except BaseException:
             self.close();raise
 
@@ -73,8 +99,14 @@ class CodexTransport:
 
     def prepare(self, attempt): pass
 
+    def check_idle(self):
+        if not self.job.get('send_when_active'):
+            from native_chat_state import codex_chat_state
+            require_idle(codex_chat_state(self.binding['runtime_id'],server_version=self.binding['server_version'],codex_home=self.binding['codex_home']))
+
     def dispatch(self, attempt):
         self.unloaded()
+        self.check_idle()
         if not self.guard():raise NotDispatched('Pausa, chiusura o modifica prima dell’invio')
         reply=self.client.rpc('thread/queue/add',{'threadId':attempt['runtime_id'],
             'input':[{'type':'text','text':self.job['message'],'text_elements':[]}],
@@ -85,6 +117,7 @@ class CodexTransport:
 
     def reconcile(self, attempt):
         binding=json.loads(attempt['binding_json'])
+        binding.update({key:self.binding[key] for key in ('cli_executable','server_version','codex_home')})
         base={'threadId':attempt['runtime_id'],'limit':100,'sortDirection':'desc'}
         # Always inspect the head for newly arrived receipts; also advance the
         # previous cursor so a high-traffic history cannot hide an old receipt.
@@ -125,19 +158,24 @@ class ClaudeTransport:
             except psutil.Error: continue
         if len(owners)!=1: raise ProtocolError('Sessione Claude non aperta nel desktop: nessun invio')
         self.executable=owners[0].exe()
+        self.owner=owners[0]
         args=owners[0].cmdline()
         modes=[args[i+1] for i,arg in enumerate(args[:-1]) if arg=='--permission-mode']
         modes += [arg.split('=',1)[1] for arg in args if arg.startswith('--permission-mode=')]
-        # Only this genuine, tested permission-class combination is qualified.
+        # These modes share the native prompting class. Do not assume that a
+        # desktop plan/bypass session belongs to the same permission class.
         # Never change receiver permissions or spoof a bypassed sender's class.
-        if modes not in (['default'],['acceptEdits']):
+        if modes not in (['default'],['acceptEdits'],['auto'],['dontAsk']):
             raise ProtocolError('Policy Claude non qualificata per invio locale; permessi conservati')
         self.binding={'app':'claude','logical_id':job['session_id'],'runtime_id':runtime,
             'history':identity['history'],'history_offset':Path(identity['history']).stat().st_size,
             'index':identity['index'],'revision':1}
-        if not job.get('send_when_active'):
-            # No unreliable inference of idle from a producer or process alive.
-            raise ProtocolError('Invio Claude a chat libera non ancora verificabile dal collegamento nativo')
+        self.check_idle()
+
+    def check_idle(self):
+        if not self.job.get('send_when_active'):
+            from native_claude_state import claude_chat_state
+            require_idle(claude_chat_state(self.owner,runtime_id=self.binding['runtime_id'],logical_id=self.binding['logical_id']))
 
     def prepare(self, attempt):
         from bounded_process import run_bounded
@@ -189,6 +227,7 @@ class ClaudeTransport:
         return json.loads(text.split(marker,1)[1])
 
     def dispatch(self, attempt):
+        self.check_idle()
         if not self.guard():raise NotDispatched('Pausa, chiusura o modifica prima dell’invio')
         self.command('/sentinella-send '+json.dumps({'attempt':attempt['id'],
             'target':attempt['runtime_id'],'text':self.job['message']},ensure_ascii=False))

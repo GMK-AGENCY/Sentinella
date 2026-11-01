@@ -15,11 +15,12 @@ class ProtocolError(RuntimeError):
 
 
 class OwnedJsonProcess:
-    def __init__(self, command, cwd):
+    def __init__(self, command, cwd, env=None):
         self.messages = queue.Queue()
         self.stderr = tempfile.TemporaryFile()
         self.process = subprocess.Popen(command, cwd=cwd, stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=self.stderr,
+            env=env,
             creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         self.owned = {self.process.pid: psutil.Process(self.process.pid)}
         self.owned[self.process.pid].create_time()

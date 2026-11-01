@@ -36,7 +36,7 @@ class NativeServiceIntegrationTests(unittest.TestCase):
                 'interval_seconds':60,'activated_at':activated,'send_when_active':True,'send_when_present':True}
             (root/'messages-config.json').write_text(json.dumps({'jobs':[job]}),encoding='utf-8')
             run_id=str(uuid.uuid4())
-            proc=subprocess.Popen([sys.executable,str(SOURCE_ROOT/'notification_watch.py')],cwd=root,
+            proc=subprocess.Popen([sys.executable,str(SOURCE_ROOT/'notification_watch.py'),'--hidden','--no-notifications'],cwd=root,
                 env={**os.environ,'SENTINELLA_DATA_DIR':str(root),'SENTINELLA_RUN_ID':run_id},
                 stdin=subprocess.DEVNULL,stdout=output,stderr=output,
                 creationflags=subprocess.CREATE_NO_WINDOW)
@@ -63,6 +63,7 @@ class NativeServiceIntegrationTests(unittest.TestCase):
                 heartbeat=json.loads((root/'logs/gui-heartbeat.json').read_text(encoding='utf-8'))
                 self.assertEqual(run_id,heartbeat['run_id'])
                 self.assertEqual(proc.pid,heartbeat['pid'])
+                self.assertEqual('withdrawn',heartbeat['window_state'])
             finally:stop_owned(proc,known)
 
 
