@@ -59,15 +59,25 @@ La **Panoramica** mostra ogni messaggio con frequenza, prossima attività e ulti
 
 - La programmazione conserva ID, versione, testo, scadenza e ultimo invio in modo persistente.
 - Codex e Claude vengono identificati tramite l'ID stabile della chat. Il nome corrente viene risolto da quell'ID: una rinomina non crea una nuova programmazione e non azzera il timer. Le programmazioni precedenti vengono associate all'ID quando l'identità è verificabile, con backup e senza cambiare versioni, bozze o scadenze.
-- La selezione nella barra laterale richiede un collegamento univoco all'ID. Se questo non è verificabile, l'invio si ferma senza scegliere una chat omonima. In Claude la chat già aperta viene verificata anche tramite l'ID nel documento nativo, distinguendola dalle pagine del browser integrato.
-- Il controllo **Invia anche mentre lavora** permette la consegna alla chat attiva tramite il suo pulsante nativo, su entrambe le applicazioni. Le altre programmazioni aspettano che la chat sia libera.
-- **Invia anche mentre uso il PC** consente gli invii nativi durante l’uso del PC, selezionando la chat esatta quando l’app destinataria è in background, senza prendere il focus. Se stai usando un’altra chat nella stessa app, aspetta per non interromperti. Durante la digitazione nel campo messaggio aspetta una breve pausa. Se spento, vale l'inattività impostata. È spento per nuove programmazioni; i messaggi già configurati conservano il comportamento precedente. Cambiare soltanto queste opzioni mantiene la scadenza esistente.
-- Una bozza dell'utente, un dialogo aperto, una pausa o un'identità non verificabile impediscono l'invio.
+- Il collegamento usa l'ID della sessione, senza selezionare chat nella barra laterale, digitare nel compositore o cambiare finestra. Un ID assente o archiviato blocca l'invio.
+- **Invia anche mentre lavora** consente di consegnare alla coda nativa. Codex acquisisce il messaggio quando la sessione desktop può elaborarlo: accodato e ricevuto sono stati distinti. L'opzione spenta richiede uno stato attendibile del destinatario; questa revisione segnala esplicitamente quando il collegamento non può verificarlo.
+- **Invia anche mentre uso il PC** applica la preferenza del singolo messaggio. Se attiva, l'attività di mouse e tastiera non rinvia un invio nativo; restano obbligatori pausa, identità e regole dell'app destinataria. Se spenta, vale l'inattività impostata.
+- Le bozze nelle chat restano intatte perché il collegamento non legge né modifica il compositore. Una pausa impedisce nuovi invii; una consegna già accettata dall'app può essere completata successivamente.
 - La prenotazione viene salvata prima dell'invio. Un invio dall'esito incerto non viene ripetuto automaticamente.
-- Codex è indicato come consegnato soltanto dopo la lettura di un vero messaggio utente nello storico della chat corretta. Il confronto ammette esclusivamente il ritorno a capo terminale aggiunto dal compositore nativo, registrandolo nella ricevuta.
+- Codex è indicato come ricevuto soltanto con un messaggio utente nativo contenente l'ID del tentativo e il testo esatto. Per Claude si verificano sessione, mittente nativo del tentativo, testo esatto, data e UUID della ricevuta. Una risposta dell'assistente non è una ricevuta.
 - Se il timer viene modificato durante una consegna, la ricevuta della vecchia versione non azzera il nuovo timer.
 
-Le letture non cambiano focus. Quando l’invio durante l’uso del PC è attivo, Sentinella può selezionare la chat esatta nell’applicazione in background tramite i controlli nativi, senza simulare mouse o tastiera. Ricontrolla il primo piano prima della selezione e dell’invio. Se l’app destinataria è in uso su un’altra chat, conserva il lavoro e attende. Le ricevute Claude provengono soltanto da messaggi utente della sessione identificata; la rimozione dello spazio terminale da parte dell'app viene dichiarata nella ricevuta. Un residuo esatto della bozza di Sentinella viene salvato integralmente in `logs/preserved-drafts` prima della pulizia; bozze diverse restano nel campo.
+### Collegamento nativo: revisione in collaudo
+
+Questa revisione usa `thread/queue/add` dell'app-server locale Codex e `session.send` di un componente locale Claude, eseguito in un processo nascosto posseduto da Sentinella. Il mittente Codex non avvia, riprende o interrompe sessioni. Il componente Claude non viene installato nella chat destinataria e non richiede una chiamata a un modello. Viene verificata la compatibilità prima dell'invio; non esiste un ripiego automatico su clic o tastiera.
+
+Il collaudo copre Codex CLI `0.166.0-alpha.5.1` e Claude Code `2.1.308`, con sessione desktop Claude in modalità `acceptEdits` e mittente ristretto a `default`. La modalità destinataria `default`, della stessa classe nativa, è ammessa ma richiede ancora una prova dedicata. Combinazioni di permessi diverse vengono segnalate come non qualificate, senza cambiare la sicurezza della sessione. L'opzione di invio soltanto a chat libera non è ancora qualificata per questi collegamenti. Questa revisione richiede il completamento della matrice di compatibilità e della verifica dell'installazione prima del rilascio.
+
+La sessione destinataria deve essere già aperta nel motore desktop. Una sessione Codex salvata ma non ancora caricata dal desktop può conservare l'input in coda: questo non viene presentato come ricevuto. Aprire soltanto l'app non dimostra che ogni sua chat possa già elaborare messaggi.
+
+Intento, ricevuta e avanzamento del timer sono transazioni persistenti in `logs/messages.sqlite3`. Un solo tentativo resta aperto per sessione fisica, anche se esistono più programmazioni o alias. Il recupero delle ricevute continua per tentativi di messaggi ora sospesi, modificati o eliminati. Un tentativo precedente con esito incerto viene conservato e non autorizza un nuovo invio, neppure creando una nuova programmazione verso la stessa chat.
+
+La protezione evita reinvii automatici dopo crash o perdita della risposta del mittente. Non promette consegna esattamente una volta in ogni guasto interno di Codex o Claude: un problema del loro consumatore nativo, della cronologia o del disco può richiedere una verifica. In assenza di prova positiva Sentinella mostra la ricezione da verificare, senza inventare una riuscita.
 
 ## Modifiche e pulizia dei registri
 

@@ -11,13 +11,16 @@ import psutil
 
 
 def stop_owned(process, known):
+    parent=known.get(process.pid)
     try:
-        parent = psutil.Process(process.pid)
-        for child in parent.children(recursive=True):
-            known[child.pid] = child
-        known[parent.pid] = parent
-    except psutil.Error:
-        pass
+        if parent is None and process.poll() is None:
+            candidate=psutil.Process(process.pid)
+            candidate.create_time()  # Pin identity before any enumeration.
+            if process.poll() is None:parent=candidate;known[parent.pid]=parent
+        if parent is not None and parent.is_running():
+            for child in parent.children(recursive=True):
+                child.create_time();known[child.pid]=child
+    except psutil.Error:pass
     for child in reversed(list(known.values())):
         try:
             child.kill()

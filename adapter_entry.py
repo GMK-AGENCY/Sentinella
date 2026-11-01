@@ -8,11 +8,11 @@ if __name__ == "__main__":
     from runtime_paths import SOURCE_ROOT, frozen
     root = SOURCE_ROOT
     script = sys.argv[1]
-    if script not in {"question_desktop.py", "approval_desktop.py", "chat_desktop.py", "message_worker.py", "codex_local_sender.py", "file_recovery.py"}:
+    if script not in {"question_desktop.py", "approval_desktop.py", "chat_desktop.py", "message_worker.py", "codex_local_sender.py", "file_recovery.py", "native_delivery_worker.py"}:
         raise SystemExit("Unknown native adapter")
     sys.argv = [str(root / script), *sys.argv[2:]]
     faulthandler.enable()
-    faulthandler.dump_traceback_later(8, file=sys.stderr)
+    faulthandler.dump_traceback_later(30 if script=='native_delivery_worker.py' else 8, file=sys.stderr)
     try:
         if frozen():
             runpy.run_module(script.removesuffix(".py"), run_name="__main__")

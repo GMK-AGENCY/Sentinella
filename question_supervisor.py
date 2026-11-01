@@ -60,10 +60,11 @@ def run_adapter(app, title=None, act=False):
 
 def bounded_worker(script, *args):
     try:
-        process = run_bounded(command("adapter_entry", script, *args), timeout=12, cwd=ROOT)
+        timeout=40 if script=='native_delivery_worker.py' else 12
+        process = run_bounded(command("adapter_entry", script, *args), timeout=timeout, cwd=ROOT)
         if process["timed_out"]:
             log({"type": "adapter_timeout", "script": script, "elapsed_seconds": process["elapsed_seconds"], "stack": process["stderr"][-6000:]})
-            return {"action": "error", "error": f"Timeout adattatore {script} dopo 12 secondi"}
+            return {"action": "error", "error": f"Timeout adattatore {script} dopo {timeout} secondi"}
         result = json.loads(process["stdout"].strip().splitlines()[-1])
         if process["returncode"] and not result.get("error"):
             result["error"] = f"Adattatore {script} terminato con codice {process['returncode']}"
@@ -253,24 +254,16 @@ def run():
         blocked = action_block_reason(config)
         # This worker belongs to Sentinella, not to a chat heartbeat. Receipts
         # can be read while the PC is in use; it gates all native actions itself.
-        if not config.get("paused") and time.monotonic() >= next_connector_check:
-            connector = bounded_worker("codex_local_sender.py") if connector_work_due(load_jobs(), LOGS / "messages.sqlite3", request_path=LOGS / "codex-local-verify-request.json") else {"action": "idle"}
-            next_connector_check = time.monotonic() + (1 if connector.get("action") in {"selected_chat", "drafted"} else 5)
-            state["codex_delivery"] = connector
-            if connector.get("action") in {"selected_chat", "drafted", "awaiting_receipt", "confirmed"}:
-                publish(state)
-                time.sleep(1)
-                continue
+        if time.monotonic() >= next_connector_check:
+            from native_delivery import work_due
+            connector=bounded_worker('native_delivery_worker.py') if work_due([] if config.get('paused') else load_jobs(),LOGS/'messages.sqlite3') else {'action':'idle'}
+            next_connector_check=time.monotonic()+5
+            state['native_delivery']=connector
         if blocked:
             state.update(blocked_reason=blocked, messages={"action": "paused" if config.get("paused") else "waiting_for_idle"})
             # The sender verifies foreground ownership before every native
             # action. It can operate on the already-open background chat without
             # taking focus; a foreground target still honors the idle threshold.
-            if not config.get('paused') and time.monotonic() >= next_message_check:
-                if any(job.get('enabled') and job['app'] == 'claude' and job.get('transport', 'desktop') == 'desktop' for job in load_jobs()):
-                    periodic = bounded_worker('message_worker.py', '--skip-app', 'codex')
-                    state['messages'] = periodic
-                next_message_check = time.monotonic() + 5
             # Human input blocks focus/clicks/sends, not a read-only observation.
             # Preserve the configured scan interval and never inspect on pause.
             if not config.get("paused"):
@@ -333,13 +326,7 @@ def run():
         else:
             # Timer deadlines are independent of the background chat scan interval.
             periodic = {"action": "idle"}
-            if time.monotonic() >= next_message_check:
-                if any(job.get("enabled") and job.get("transport", "desktop") == "desktop" and job["app"] not in waiting_apps for job in load_jobs()):
-                    skip_args = [argument for app in sorted(waiting_apps) for argument in ("--skip-app", app)]
-                    periodic = bounded_worker("message_worker.py", *skip_args)
-                next_message_check = time.monotonic() + (0.8 if periodic.get("action") in {"selected_chat", "drafted"} else 5)
-                if periodic.get("action") not in {"idle", "none"}:
-                    log({"type": "periodic_message", **periodic})
+            periodic=state.get('native_delivery',periodic)
             state["messages"] = periodic
             if periodic.get("action") not in {"selected_chat", "drafted", "sent_periodic"}:
                 for app in enabled_apps:

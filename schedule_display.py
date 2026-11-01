@@ -22,6 +22,13 @@ def _schedule_display(job, stored, config, now, waiting_reason=None):
     if not job.get("enabled") or config.get("paused"):
         return {**result, "status": "In pausa", "next": "Riprendi Sentinella" if config.get("paused") else "Riprendi il messaggio"}
     detail = result['detail'].casefold()
+    native=state.get('native_stage')
+    if native in {'reserved','dispatch_intent','accepted','unknown'}:
+        if native=='reserved':return {**result,'status':'Preparazione','next':'Collegamento alla chat'}
+        if native=='accepted' and 'accodato' in detail:
+            return {**result,'status':'Accodato alla chat','next':'Attende l’elaborazione della chat'}
+        return {**result,'status':'Verifica ricevuta' if now-state.get('reserved_at',0)<120 else 'Da verificare',
+                'next':'Verifica automatica della ricezione; nessun reinvio'}
     if 'interfaccia' in detail and 'non riconosciuta' in detail or 'campo messaggio non univoco' in detail:
         return {**result,'status':'Errore invio','next':'Aggiorna Sentinella',
                 'detail':result['detail']+' · Il timer e le bozze sono conservati. Nessun nuovo invio finché il campo messaggio non è riconosciuto.'}

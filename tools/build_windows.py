@@ -33,9 +33,10 @@ def build(output):
         args += ["--add-data", str(ROOT / name) + ":."]
     for name in ['sentinella.ico','sentinella.png']:
         args += ['--add-data',str(ROOT/'assets'/name)+':assets']
+    args += ['--add-data',str(ROOT/'assets/native_claude_bridge')+':assets/native_claude_bridge']
     args.append(str(ROOT / "sentinella_app.py"))
     # The orchestrator polls this process; no synchronous wait is unbounded.
-    return subprocess.Popen(args, cwd=ROOT)
+    return subprocess.Popen(args, cwd=ROOT, creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
 
 
 def notices(bundle):

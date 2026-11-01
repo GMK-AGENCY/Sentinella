@@ -271,9 +271,8 @@ def tick(store=None, bridge=None, now=None, metadata=thread_metadata, observe=ob
 
 if __name__ == "__main__":
     try:
-        from chat_identity import refresh_saved
-        refresh_saved(ROOT)
-        result = tick()
+        from native_delivery import run
+        result = run(ROOT)
         try:
             from sentinel_launcher import atomic_json
             atomic_json(ROOT / "logs/codex-local-status.json", {"updated_at": time.time(), **result})
