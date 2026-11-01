@@ -147,6 +147,15 @@ class DeliveryJournalTests(unittest.TestCase):
         self.store.prepare(job,1000)
         self.assertIsNone(self.journal.reserve(job,binding,1061))
 
+    def test_restarted_physical_session_cannot_bypass_old_logical_uncertainty(self):
+        first=self.attempt()
+        changed={**self.job,'version':'v2'}
+        self.store.prepare(changed,1000)
+        new_binding={**self.binding,'runtime_id':'new-cli-after-restart'}
+        self.assertIsNone(self.journal.reserve(changed,new_binding,1061))
+        self.assertEqual('reserved',self.journal.get(first['id'])['state'])
+        self.assertEqual(1,self.store.db.execute('SELECT count(*) FROM native_attempts').fetchone()[0])
+
     def test_legacy_attempt_in_another_job_blocks_same_runtime(self):
         self.store.db.execute('CREATE TABLE claude_timer_deliveries(job_id TEXT,identity TEXT,stage TEXT)')
         self.store.db.execute('INSERT INTO claude_timer_deliveries VALUES(?,?,?)',

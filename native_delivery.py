@@ -149,8 +149,8 @@ def cycle(store, root, read_config, read_jobs, factory=None, now=None, recover=N
         client=None;attempt=None
         try:
             client=factory(job,config,root)
-            if store.db.execute("SELECT 1 FROM native_attempts WHERE app=? AND runtime_id=? AND state IN ('reserved','dispatch_intent','accepted','unknown')",
-                                (job['app'],client.binding['runtime_id'])).fetchone():
+            if store.db.execute("SELECT 1 FROM native_attempts WHERE app=? AND (runtime_id=? OR target_id=?) AND state IN ('reserved','dispatch_intent','accepted','unknown')",
+                                (job['app'],client.binding['runtime_id'],client.binding['logical_id'])).fetchone():
                 store.update(job,'idle','Invio precedente della stessa chat in verifica; nessun reinvio')
                 results.append({'action':'target_pending','job':job['id']})
                 continue

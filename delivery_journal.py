@@ -32,6 +32,9 @@ class Journal:
             CREATE UNIQUE INDEX IF NOT EXISTS native_open_target
                 ON native_attempts(app,runtime_id)
                 WHERE state IN ('reserved','dispatch_intent','accepted','unknown');
+            CREATE UNIQUE INDEX IF NOT EXISTS native_open_logical_target
+                ON native_attempts(app,target_id)
+                WHERE state IN ('reserved','dispatch_intent','accepted','unknown');
             CREATE TABLE IF NOT EXISTS native_receipts (
                 app TEXT NOT NULL, target_id TEXT NOT NULL, physical_id TEXT NOT NULL,
                 attempt_id TEXT UNIQUE NOT NULL, received REAL NOT NULL,
@@ -89,7 +92,7 @@ class Journal:
             row = self.db.execute('SELECT * FROM timers WHERE id=? AND version=?',
                                   (job['id'], job['version'])).fetchone()
             if (not row or row['phase'] != 'idle' or row['due'] > now or self.legacy_pending(job,binding)
-                    or self.db.execute("SELECT 1 FROM native_attempts WHERE app=? AND runtime_id=? AND state IN ('reserved','dispatch_intent','accepted','unknown')", (job['app'], binding['runtime_id'])).fetchone()):
+                    or self.db.execute("SELECT 1 FROM native_attempts WHERE app=? AND (runtime_id=? OR target_id=?) AND state IN ('reserved','dispatch_intent','accepted','unknown')", (job['app'], binding['runtime_id'],target)).fetchone()):
                 self.db.rollback()
                 return None
             self.db.execute('''INSERT INTO native_attempts
