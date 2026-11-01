@@ -129,25 +129,28 @@ class NativeDeliveryTests(unittest.TestCase):
         self.assertEqual('control_request',client.send.call_args.args[0]['type'])
 
     def test_claude_preflight_requires_allow_without_preapproving_tools(self):
-        for decision in ('allow','ask','deny'):
-            with self.subTest(decision=decision):
+        for decision,inbound in (('allow',True),('ask',True),('deny',True),('allow',False)):
+            with self.subTest(decision=decision,inbound=inbound):
                 client=Mock()
                 client.receive_until.side_effect=[
                     {'response':{'subtype':'success','response':{'commands':[{'name':'sentinella-status'},{'name':'sentinella-send'}],
                         'current_permission_mode':'default'}}},
                     {'type':'system','subtype':'init','permissionMode':'default'},
                     {'type':'result','num_turns':0,'result':'SENTINELLA_JSON:'+json.dumps({
-                        'ready':True,'revision':1,'permission_allowed':decision=='allow','permission_decision':decision})}]
+                        'ready':True,'revision':1,'inbound_refused':inbound,'permission_allowed':decision=='allow','permission_decision':decision})}]
                 native=ClaudeTransport.__new__(ClaudeTransport)
                 native.root=self.root;native.executable='owned-cli';native.client=None;native.job=self.job
                 attempt={'id':str(uuid.uuid4()),'binding_json':json.dumps({'runtime_id':self.job['thread_id']})}
                 with patch('bounded_process.run_bounded',return_value={'returncode':0,'timed_out':False}), \
                      patch('native_transports.OwnedJsonProcess',return_value=client) as process:
-                    if decision=='allow':native.prepare(attempt)
+                    if not inbound:
+                        with self.assertRaisesRegex(RuntimeError,'non è isolato'):native.prepare(attempt)
+                    elif decision=='allow':native.prepare(attempt)
                     else:
                         with self.assertRaises(NotDispatched):native.prepare(attempt)
                 args=process.call_args.args[0]
                 self.assertEqual('SendMessage',args[args.index('--tools')+1])
+                self.assertEqual({'crossSessionInbound':'refuse'},json.loads(args[args.index('--settings')+1]))
                 self.assertNotIn('--allowedTools',args)
                 user=[call.args[0]['message']['content'] for call in client.send.call_args_list if call.args[0].get('type')=='user']
                 self.assertEqual(1,len(user));self.assertTrue(user[0].startswith('/sentinella-status '))

@@ -190,6 +190,7 @@ class ClaudeTransport:
         self.client=OwnedJsonProcess([self.executable,'--print','--input-format','stream-json',
             '--output-format','stream-json','--verbose','--replay-user-messages',
             '--plugin-dir',str(plugin),
+            '--settings','{"crossSessionInbound":"refuse"}',
             '--permission-mode','default','--tools','SendMessage','--strict-mcp-config','--mcp-config','{"mcpServers":{}}',
             '--max-turns','2','--name',self.binding['sender_name']],work)
         # Official SDK handshake returns registered commands BEFORE any user
@@ -215,6 +216,8 @@ class ClaudeTransport:
             if time.monotonic()>=deadline:raise ProtocolError('Collegamento Claude non pronto; nessun invio')
         if init.get('permissionMode')!='default' or ready.get('ready') is not True or ready.get('revision')!=1:
             raise ProtocolError('Capacità Claude non disponibile; nessun invio')
+        if ready.get('inbound_refused') is not True:
+            raise ProtocolError('Il mittente Claude non è isolato dai messaggi in ingresso; nessun invio')
         if ready.get('permission_allowed') is not True:
             raise NotDispatched('Invio Claude non autorizzato dalla policy del mittente: '+str(ready.get('permission_decision','non disponibile')))
 

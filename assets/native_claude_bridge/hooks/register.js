@@ -11,7 +11,9 @@ export function register(on) {
     // check never executes the tool or opens an approval. Existing deny/ask
     // rules remain authoritative. A removed tool throws before any send.
     const permission=await $.tool.check({tool:'SendMessage',input:{to:p.target,message:p.text}});
+    const inbound=await $.settings.read({key:'crossSessionInbound'});
     return {text:'SENTINELLA_JSON:'+JSON.stringify({ready:true,sessionId:await $.session.id(),revision:1,
+      inbound_refused:inbound==='refuse',
       permission_allowed:permission.decision==='allow',permission_decision:permission.decision})};
   });
   on('command.run', {command:'sentinella-send'}, async ($, e) => {
