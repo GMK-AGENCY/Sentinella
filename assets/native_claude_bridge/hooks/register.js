@@ -5,9 +5,15 @@ export function register(on) {
     await $.command.register({name:'sentinella-send',description:'Consegna una prenotazione locale'});
     return next(e);
   });
-  on('command.run', {command:'sentinella-status'}, async ($) => ({
-    text:'SENTINELLA_JSON:'+JSON.stringify({ready:true,sessionId:await $.session.id(),revision:1})
-  }));
+  on('command.run', {command:'sentinella-status'}, async ($, e) => {
+    const p=JSON.parse(e.args);
+    if(typeof p.target!=='string' || typeof p.text!=='string')throw new Error('Verifica incompleta');
+    // check never executes the tool or opens an approval. Existing deny/ask
+    // rules remain authoritative. A removed tool throws before any send.
+    const permission=await $.tool.check({tool:'SendMessage',input:{to:p.target,message:p.text}});
+    return {text:'SENTINELLA_JSON:'+JSON.stringify({ready:true,sessionId:await $.session.id(),revision:1,
+      permission_allowed:permission.decision==='allow',permission_decision:permission.decision})};
+  });
   on('command.run', {command:'sentinella-send'}, async ($, e) => {
     const p=JSON.parse(e.args);
     const uuid=/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;

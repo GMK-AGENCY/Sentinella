@@ -189,7 +189,7 @@ class ClaudeTransport:
         self.client=OwnedJsonProcess([self.executable,'--print','--input-format','stream-json',
             '--output-format','stream-json','--verbose','--replay-user-messages',
             '--plugin-dir',str(plugin),
-            '--permission-mode','default','--tools','','--strict-mcp-config','--mcp-config','{"mcpServers":{}}',
+            '--permission-mode','default','--tools','SendMessage','--strict-mcp-config','--mcp-config','{"mcpServers":{}}',
             '--max-turns','2','--name',self.binding['sender_name']],work)
         # Official SDK handshake returns registered commands BEFORE any user
         # prompt. An absent/disabled module must never send a slash to a model.
@@ -204,7 +204,7 @@ class ClaudeTransport:
                 or not {'sentinella-status','sentinella-send'}<=commands):
             raise ProtocolError('Componente Claude disabilitato o non disponibile; nessun messaggio a un modello')
         self.binding['cli_version']=capabilities.get('claude_code_version')
-        self.command('/sentinella-status')
+        self.command('/sentinella-status '+json.dumps({'target':self.binding['runtime_id'],'text':self.job['message']},ensure_ascii=False))
         init=None;ready=None
         deadline=time.monotonic()+7
         while not init or not ready:
@@ -214,6 +214,8 @@ class ClaudeTransport:
             if time.monotonic()>=deadline:raise ProtocolError('Collegamento Claude non pronto; nessun invio')
         if init.get('permissionMode')!='default' or ready.get('ready') is not True or ready.get('revision')!=1:
             raise ProtocolError('Capacità Claude non disponibile; nessun invio')
+        if ready.get('permission_allowed') is not True:
+            raise NotDispatched('Invio Claude non autorizzato dalla policy del mittente: '+str(ready.get('permission_decision','non disponibile')))
 
     def command(self,text):
         self.client.send({'type':'user','message':{'role':'user','content':text}})
@@ -236,7 +238,8 @@ class ClaudeTransport:
         if answer.get('attempt')!=attempt['id'] or answer.get('target')!=attempt['runtime_id']:
             raise ProtocolError('Risposta Claude non pertinente')
         return {'accepted':answer.get('isDelivered') is True,
-                'detail':'Accettato da Claude; verifica della ricezione' if answer.get('isDelivered') is True else 'Claude non conferma la consegna; nessun reinvio automatico'}
+                'detail':('Accettato da Claude; verifica della ricezione' if answer.get('isDelivered') is True else
+                          'Claude non conferma la consegna: '+str(answer.get('reason') or 'nessun motivo restituito')[:500]+'; nessun reinvio automatico')}
 
     def reconcile(self, attempt):
         receipt,cursor=claude_receipt(attempt)
