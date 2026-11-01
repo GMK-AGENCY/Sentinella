@@ -27,6 +27,17 @@ class Button:
 
 
 class LocalSenderTests(unittest.TestCase):
+    def test_archive_move_after_invoke_reconciles_same_id_without_resend(self):
+        button=Button()
+        self.tick(2000,lambda *_:{'action':'drafted'})
+        self.tick(2001,lambda *_:{'action':'ready','button':button})
+        self.append(self.job['message'],at=2002)
+        moved=self.path.with_name('archived-history.jsonl');self.path.replace(moved)
+        with patch('codex_local_sender.thread_metadata',return_value={'rollout_path':str(moved)}) as reader:
+            result=self.tick(2003,lambda *_:self.fail('never resend'))
+        self.assertEqual(result['action'],'confirmed');self.assertEqual(button.calls,1)
+        reader.assert_called_once_with({'thread_id':'thread-1'},receipt_only=True)
+
     def test_edit_retires_only_unsent_reserved_version_and_keeps_new_deadline(self):
         self.tick(2000,lambda *_:{'action':'none','reason':'Campo messaggio non univoco'})
         token=self.store.db.execute('SELECT token FROM local_codex_deliveries').fetchone()[0]
