@@ -11,7 +11,7 @@ import time
 import uuid
 import psutil
 
-from runtime_paths import data_root, command
+from runtime_paths import data_root, command, SOURCE_ROOT
 ROOT = data_root()
 
 
@@ -37,9 +37,23 @@ def read_json(path):
         return {}
 
 
+def request_window(logs):
+    """A normal user launch targets only the launcher's current generation."""
+    current=read_json(Path(logs)/'launcher-health.json')
+    if not current.get('run_id'):return False
+    atomic_json(Path(logs)/'show-window.json',{'requested_at':time.time(),'run_id':current['run_id']})
+    return True
+
+
 def stop_tree(child):
     try:
-        process = psutil.Process(child.pid)
+        if isinstance(child,psutil.Process):
+            process=child
+        else:
+            if child.poll() is not None:return
+            process=psutil.Process(child.pid);process.create_time()
+            if child.poll() is not None:return
+        if not process.is_running():return
         descendants = process.children(recursive=True)
         for item in [*reversed(descendants), process]:
             try:
@@ -56,7 +70,7 @@ def stop_tree(child):
         pass
 
 
-def cleanup_owned_workers(root, run_id):
+def cleanup_owned_workers(root, run_id, source_root=SOURCE_ROOT):
     owned = []
     for process in psutil.process_iter(["name", "cmdline"]):
         try:
@@ -68,10 +82,10 @@ def cleanup_owned_workers(root, run_id):
             else:
                 if (process.info["name"] or "").casefold() not in {"python.exe", "pythonw.exe"}:
                     continue
-                if str(root).casefold() not in command.casefold() or "sentinel_launcher.py" in command:
+                if not any(str(base).casefold() in command.casefold() for base in (root,source_root)) or "sentinel_launcher.py" in command:
                     continue
             if process.environ().get("SENTINELLA_RUN_ID") == run_id:
-                process.terminate()
+                stop_tree(process)
                 owned.append(process)
         except psutil.Error:
             continue
@@ -108,12 +122,15 @@ class HeartbeatWatch:
 
 
 class Launcher:
-    def __init__(self, root=ROOT, executable=sys.executable, background=False, check_seconds=2, restart_scale=1, watchdog_grace=90, heartbeat_timeout=45):
+    def __init__(self, root=ROOT, executable=sys.executable, background=False, check_seconds=2, restart_scale=1, watchdog_grace=90, heartbeat_timeout=45, source_root=SOURCE_ROOT, hidden=False, notifications=True):
         self.root = Path(root)
         self.logs = self.root / "logs"
         self.logs.mkdir(exist_ok=True)
         self.executable = executable
         self.background = background
+        self.source_root=Path(source_root)
+        self.hidden=hidden
+        self.notifications=notifications
         self.check_seconds = check_seconds
         self.restart_scale = restart_scale
         self.watchdog_grace = watchdog_grace
@@ -128,9 +145,12 @@ class Launcher:
         while True:
             run_id = str(uuid.uuid4())
             env = {**os.environ, "SENTINELLA_RUN_ID": run_id}
-            arguments = command("notification_watch", executable=self.executable, source_root=self.root)
-            if self.background:
+            arguments = command("notification_watch", executable=self.executable, source_root=self.source_root)
+            if self.hidden:
+                arguments.append('--hidden')
+            elif self.background:
                 arguments.append("--background")
+            if not self.notifications:arguments.append('--no-notifications')
             try:
                 child = subprocess.Popen(arguments, cwd=self.root, env=env, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             except OSError as exc:
@@ -153,7 +173,7 @@ class Launcher:
                         break
                 time.sleep(self.check_seconds)
             intent = read_json(self.logs / "exit-intent.json")
-            cleanup_owned_workers(self.root, run_id)
+            cleanup_owned_workers(self.root, run_id,self.source_root)
             if intent.get("run_id") == run_id:
                 self.log(event="closed_by_user", run_id=run_id)
                 return
@@ -170,6 +190,8 @@ def main():
     ensure_local_files(ROOT)
     parser = argparse.ArgumentParser()
     parser.add_argument("--background", action="store_true")
+    parser.add_argument('--hidden',action='store_true')
+    parser.add_argument('--no-notifications',action='store_true')
     args = parser.parse_args()
     import msvcrt
     logs = ROOT / "logs"
@@ -182,11 +204,11 @@ def main():
     try:
         msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
     except OSError:
-        if not args.background:
-            atomic_json(logs / "show-window.json", {"requested_at": time.time()})
+        if not args.background and not args.hidden:
+            request_window(logs)
         return
     (logs / "launcher.pid").write_text(str(os.getpid()), encoding="ascii")
-    Launcher(background=args.background).run()
+    Launcher(background=args.background,hidden=args.hidden,notifications=not args.no_notifications).run()
 
 
 if __name__ == "__main__":

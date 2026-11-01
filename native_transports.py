@@ -189,7 +189,8 @@ class ClaudeTransport:
         self.client=OwnedJsonProcess([self.executable,'--print','--input-format','stream-json',
             '--output-format','stream-json','--verbose','--replay-user-messages',
             '--plugin-dir',str(plugin),
-            '--permission-mode','default','--max-turns','2','--name',self.binding['sender_name']],work)
+            '--permission-mode','default','--tools','','--strict-mcp-config','--mcp-config','{"mcpServers":{}}',
+            '--max-turns','2','--name',self.binding['sender_name']],work)
         # Official SDK handshake returns registered commands BEFORE any user
         # prompt. An absent/disabled module must never send a slash to a model.
         request_id=str(uuid.uuid4())

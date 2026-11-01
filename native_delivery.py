@@ -29,7 +29,7 @@ def work_due(jobs, database, now=None):
 
 
 def session_authority(root, run_id, now=None):
-    """Live GUI ancestry plus its current run and explicit exit intent.
+    """Live controller ancestry plus its current run and explicit exit intent.
 
     A stale heartbeat or a reused PID alone cannot authorize effects. A GUI
     restart has a new run ID; its old workers cannot inherit that authority.

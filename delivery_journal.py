@@ -58,18 +58,21 @@ class Journal:
             ORDER BY probe_at,created,id''', (now,))]
 
     def legacy_pending(self, job, binding):
+        from delivery_recovery import resolution_tokens
+        resolved=resolution_tokens(self.store,job['app'],binding['runtime_id'])
         names = {r[0] for r in self.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if 'connector_deliveries' in names:
             columns = {r[1] for r in self.db.execute('PRAGMA table_info(connector_deliveries)')}
             same_target = ' OR thread_id=?' if job['app']=='codex' and 'thread_id' in columns else ''
-            query = 'SELECT 1 FROM connector_deliveries WHERE (job_id=?'+same_target+') AND confirmed_at IS NULL'
+            query = 'SELECT token FROM connector_deliveries WHERE (job_id=?'+same_target+') AND confirmed_at IS NULL'
             if 'local_codex_deliveries' in names:
                 query += " AND token NOT IN (SELECT token FROM local_codex_deliveries WHERE stage='cancelled_before_send')"
             args = (job['id'],binding['runtime_id']) if same_target else (job['id'],)
-            if self.db.execute(query, args).fetchone():
+            if any(row[0] not in resolved for row in self.db.execute(query,args)):
                 return True
         if 'claude_timer_deliveries' in names and job['app']=='claude':
             for row in self.db.execute("SELECT * FROM claude_timer_deliveries WHERE stage IN ('prepared','sending')"):
+                if 'token' in row.keys() and row['token'] in resolved:continue
                 if row['job_id']==job['id']: return True
                 try: identity=json.loads(row['identity'])
                 except (ValueError,TypeError): return True  # Unmapped legacy uncertainty cannot be bypassed.

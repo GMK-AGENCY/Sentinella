@@ -181,6 +181,11 @@ class TimerStore:
                         row.update(native_stage=item['state'],reserved_at=item['created'])
                         if item['state'] in {'reserved','dispatch_intent','accepted','unknown'}:
                             row.update(detail=item['detail'])
+        if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='legacy_delivery_resolutions'").fetchone():
+            for item in self.db.execute('SELECT job_id,version,kind FROM legacy_delivery_resolutions ORDER BY at'):
+                for row in rows:
+                    if row['id']==item['job_id'] and row['version']==item['version']:
+                        row['legacy_resolution']=item['kind']
         return rows
 
 

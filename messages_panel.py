@@ -24,6 +24,7 @@ class MessagesPanel(ttk.Frame):
         super().__init__(parent, padding=20)
         self.selected_job=None;self.target=None;self.targets=[];self.chats={};self.catalog=[]
         self.scan_errors=[];self.filter_pending=None;self.results=queue.Queue();self.scan_running=False
+        self.recovery_results=queue.Queue();self.recovery_running=False
         self.last_render=0;self.rendering_chats=False;self.rendering_jobs=False
         self.editor_step=1;self.editor_baseline=None;self.editor_visible=False;self.loading_job=False
         self.status=tk.StringVar()
@@ -123,6 +124,7 @@ class MessagesPanel(ttk.Frame):
         self.save_text_button=ttk.Button(bar,text='Salva nei messaggi',command=lambda:self.library_callback());self.save_text_button.pack(side='right',padx=(0,8))
         ttk.Button(bar,text='Usa messaggio salvato',command=self.choose_saved_message).pack(side='right',padx=(0,8))
         self.history_button=ttk.Button(bar,text='Registro invii',command=self.show_history);self.history_button.pack(side='right',padx=(0,8))
+        self.recovery_button=ttk.Button(bar,text='Sblocca invii futuri…',command=self.recover_legacy)
         self.status_label=ttk.Label(self.write_page,textvariable=self.status,foreground='#a44324',wraplength=720,anchor='e',justify='right')
         self.status.trace_add('write',self.show_status)
         self.show_status()
@@ -133,6 +135,55 @@ class MessagesPanel(ttk.Frame):
     def choose_saved_message(self):
         from message_library import MessageLibraryChooser
         MessageLibraryChooser(self,self.use_saved_message)
+
+    def recover_legacy(self):
+        """Only an explicit user click can authorize future legacy slots."""
+        if self.recovery_running or not self.may_leave():return
+        job=next((j for j in load_jobs() if j['id']==self.selected_job),None)
+        if job is None:return
+        self.recovery_running=True;self.recovery_button.configure(state='disabled')
+        def inspect():
+            from delivery_recovery import list_legacy_pending
+            try:
+                store=TimerStore(ROOT/'logs/messages.sqlite3')
+                try:pending=list_legacy_pending(store,job)
+                finally:store.db.close()
+                self.recovery_results.put(('confirm',job,pending))
+            except Exception as exc:self.recovery_results.put(('error',job,str(exc)))
+        threading.Thread(target=inspect,daemon=True).start()
+
+    def poll_recovery(self):
+        try:kind,job,value=self.recovery_results.get_nowait()
+        except queue.Empty:return
+        self.recovery_running=False;self.recovery_button.configure(state='normal')
+        if kind=='error':self.status.set('Nessuna modifica: '+value);return
+        if kind=='done':
+            self.render_jobs()
+            self.status.set('Ripartenza dai soli invii futuri salvata. Il vecchio invio resta senza conferma.'
+                if value['action']=='future_only' else 'Programmazione terminata senza confermare il vecchio invio.')
+            return
+        if not value:
+            self.status.set('Non ci sono vecchi invii da sbloccare. La verifica delle ricevute native è automatica.')
+            return
+        if job['id']!=self.selected_job:
+            self.status.set('Seleziona di nuovo la programmazione da sbloccare.');return
+        repeat=job.get('repeat',True)
+        decision=('Ripartire dalla prossima scadenza futura, saltando gli intervalli già trascorsi?'
+                  if repeat else 'Terminare questa programmazione singola senza ripetere il vecchio invio?')
+        if not messagebox.askyesno('Vecchio invio senza conferma',
+                f'Chat: {job["title"]}\n\nUn vecchio tentativo non ha una ricevuta verificata. '
+                'Non è possibile stabilire con certezza se sia stato ricevuto.\n\n'+decision+
+                '\n\nIl vecchio tentativo non sarà ripetuto né segnato come ricevuto. '
+                'Bozze, testo, pause e ultima consegna confermata resteranno invariati.',
+                parent=self,default='no'):return
+        self.recovery_running=True;self.recovery_button.configure(state='disabled')
+        def apply():
+            from delivery_recovery import apply_resolution
+            try:
+                report=apply_resolution(ROOT,job['id'],job['version'],[row['token'] for row in value],time.time())
+                self.recovery_results.put(('done',job,report))
+            except Exception as exc:self.recovery_results.put(('error',job,str(exc)))
+        threading.Thread(target=apply,daemon=True).start()
 
     def show_status(self,*_):
         if self.status.get():self.status_label.pack(fill='x',pady=(4,0),after=self.editor_actions)
@@ -580,9 +631,14 @@ class MessagesPanel(ttk.Frame):
             self.job_list.delete(key)
         self.rendering_jobs=False
         self.row_actions.refresh()
+        selected_state=states.get(self.selected_job,{})
+        legacy=selected_state.get('phase') in {'drafted','uncertain'} and selected_state.get('native_stage') not in {'reserved','dispatch_intent','accepted','unknown'}
+        if legacy:self.recovery_button.pack(side='left')
+        else:self.recovery_button.pack_forget()
         self.choose_job()
 
     def poll(self):
+        self.poll_recovery()
         received=False
         try:
             rows, errors = self.results.get_nowait()

@@ -62,6 +62,8 @@ def _schedule_display(job, stored, config, now, waiting_reason=None):
             return {**result, "status": "Verifica ricevuta", "next": "Consegna in verifica"}
         return {**result, "status": "Da verificare", "next": "Invio sospeso"}
     if phase == "finished":
+        if state.get('legacy_resolution')=='archived_unconfirmed':
+            return {**result,'status':'Terminata senza conferma','next':'Nessun altro invio'}
         return {**result, "status": "Completato", "next": "Nessun altro invio"}
     detail = result["detail"].casefold()
     if 'verifica stato chat in corso' in detail:
@@ -89,7 +91,7 @@ def schedule_display(job, stored, config, now, waiting_reason=None):
     state = stored if stored and stored.get('version') == job['version'] else {}
     result = _schedule_display(job, stored, config, now, waiting_reason)
     paused = not job.get("enabled") or config.get("paused", False)
-    activation = "In pausa" if paused else "Completato" if result["status"] == "Completato" else "Attivo"
+    activation = "In pausa" if paused else "Completato" if state.get('phase')=='finished' else "Attivo"
     delta = int(math.ceil(result["due"] - now))
     seconds = abs(delta)
     hours, rest = divmod(seconds, 3600)
@@ -112,6 +114,7 @@ def schedule_display(job, stored, config, now, waiting_reason=None):
     else:
         precise = 'Tra ' + duration
     canonical = {'In pausa':('paused','In pausa'), 'Completato':('completed','Completato'),
+                 'Terminata senza conferma':('closed_unconfirmed','Terminata senza conferma'),
                  'Errore invio':('error','Invio bloccato'),
                  'Bozza presente':('draft','Bozza nella chat'), 'Preparazione':('preparing','In preparazione'),
                  'Accodato alla chat':('queued','Accodato alla chat'),
@@ -120,7 +123,7 @@ def schedule_display(job, stored, config, now, waiting_reason=None):
                  'Programmato':('scheduled','Programmato')}
     key, label = canonical.get(result['status'], ('waiting','In attesa'))
     if key != 'scheduled':
-        precise = {'paused':'Nessun nuovo invio', 'completed':'—', 'draft':'Campo messaggio già compilato',
+        precise = {'paused':'Nessun nuovo invio', 'completed':'—', 'closed_unconfirmed':'Nessun altro invio', 'draft':'Campo messaggio già compilato',
                    'preparing':result['next'], 'queued':'Attende l’elaborazione della chat',
                    'confirming':'Attende la ricevuta', 'unconfirmed':'Controlla il registro',
                    'attention':'Controlla il destinatario'}.get(key, result['next'])

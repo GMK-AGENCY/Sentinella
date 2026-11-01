@@ -6,10 +6,19 @@ import time
 import unittest
 from unittest.mock import patch
 
-from sentinel_launcher import HeartbeatWatch, Launcher, read_json
+from sentinel_launcher import HeartbeatWatch, Launcher, read_json, request_window
 
 
 class HeartbeatWatchTests(unittest.TestCase):
+    def test_open_request_never_targets_a_stale_gui_generation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            logs=Path(folder)
+            (logs/'gui-heartbeat.json').write_text(json.dumps({'run_id':'old'}))
+            self.assertFalse(request_window(logs))
+            (logs/'launcher-health.json').write_text(json.dumps({'run_id':'current'}))
+            self.assertTrue(request_window(logs))
+            self.assertEqual('current',read_json(logs/'show-window.json')['run_id'])
+
     def test_live_window_without_functional_poll_cannot_mask_a_stall(self):
         watch = HeartbeatWatch("run")
         watch.observe({"run_id":"run", "updated_at":200, "poll_updated_at":100})
@@ -61,7 +70,7 @@ while time.monotonic()-start<.85:
                         return {}
                 return value
             with patch("sentinel_launcher.read_json", side_effect=intermittent_read):
-                Launcher(root, executable=sys.executable, check_seconds=.02, restart_scale=.001, watchdog_grace=.4, heartbeat_timeout=.25).run()
+                Launcher(root, executable=sys.executable, source_root=root,check_seconds=.02, restart_scale=.001, watchdog_grace=.4, heartbeat_timeout=.25).run()
             self.assertTrue(injected)
             self.assertEqual((root / "count.txt").read_text(), "1")
             records = [json.loads(line) for line in (root / "logs/launcher.jsonl").read_text().splitlines()]

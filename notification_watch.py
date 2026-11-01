@@ -19,7 +19,7 @@ LOGS = ROOT / "logs"
 
 
 class Monitor:
-    def __init__(self):
+    def __init__(self, existing_supervisor=None):
         LOGS.mkdir(exist_ok=True)
         from chat_identity import refresh_saved
         try:refresh_saved(ROOT)
@@ -62,7 +62,10 @@ class Monitor:
         from input_activity import DeviceActivity
         self.activity = DeviceActivity(ROOT,self.run_id).start()
         if self.monitoring:self.start_worker()
-        self.start_supervisor()
+        if existing_supervisor is not None and existing_supervisor.poll() is None:
+            self.supervisor=existing_supervisor
+            self.supervisor_started_wall=time.time();self.supervisor_recovery.started()
+        else:self.start_supervisor()
         (LOGS / "monitor.pid").write_text(str(os.getpid()), encoding="ascii")
         self.root.after(500, self.poll)
         self.gui_heartbeat()
@@ -306,9 +309,12 @@ class Monitor:
             request_path = LOGS / "show-window.json"
             if request_path.exists():
                 try:
+                    from sentinel_launcher import read_json
+                    request=read_json(request_path)
                     request_path.unlink()
-                    self.root.deiconify()
-                    self.root.lift()
+                    if request.get('run_id')==self.run_id:
+                        self.root.deiconify()
+                        self.root.lift()
                 except OSError:
                     pass
             try:
@@ -416,4 +422,10 @@ if __name__ == "__main__":
         msvcrt.locking(instance_lock.fileno(), msvcrt.LK_NBLCK, 1)
     except OSError:
         raise SystemExit(0)
-    Monitor().run()
+    if '--hidden' in sys.argv:
+        from headless_service import run as run_headless
+        show,existing=run_headless(ROOT)
+        if show:
+            sys.argv.remove('--hidden')
+            Monitor(existing_supervisor=existing).run()
+    else:Monitor().run()

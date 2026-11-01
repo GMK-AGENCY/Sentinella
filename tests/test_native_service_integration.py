@@ -63,7 +63,8 @@ class NativeServiceIntegrationTests(unittest.TestCase):
                 heartbeat=json.loads((root/'logs/gui-heartbeat.json').read_text(encoding='utf-8'))
                 self.assertEqual(run_id,heartbeat['run_id'])
                 self.assertEqual(proc.pid,heartbeat['pid'])
-                self.assertEqual('withdrawn',heartbeat['window_state'])
+                self.assertEqual('absent',heartbeat['window_state'])
+                self.assertEqual('headless',heartbeat['controller_kind'])
             finally:stop_owned(proc,known)
 
 
