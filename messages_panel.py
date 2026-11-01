@@ -124,7 +124,7 @@ class MessagesPanel(ttk.Frame):
         self.save_text_button=ttk.Button(bar,text='Salva nei messaggi',command=lambda:self.library_callback());self.save_text_button.pack(side='right',padx=(0,8))
         ttk.Button(bar,text='Usa messaggio salvato',command=self.choose_saved_message).pack(side='right',padx=(0,8))
         self.history_button=ttk.Button(bar,text='Registro invii',command=self.show_history);self.history_button.pack(side='right',padx=(0,8))
-        self.recovery_button=ttk.Button(bar,text='Sblocca invii futuri…',command=self.recover_legacy)
+        self.recovery_button=ttk.Button(heading,text='Gestisci invii incerti…',command=self.recover_legacy)
         self.status_label=ttk.Label(self.write_page,textvariable=self.status,foreground='#a44324',wraplength=720,anchor='e',justify='right')
         self.status.trace_add('write',self.show_status)
         self.show_status()
@@ -619,7 +619,7 @@ class MessagesPanel(ttk.Frame):
         for job in jobs:
             display = schedule_display(job, states.get(job["id"]), config, now, waiting_reason)
             self.display_states[job["id"]] = display
-            last=clock_label(receipts[job['id']],now) if job['id'] in receipts else display['last_sent']
+            last=clock_label(receipts[job['id']],now) if job['id'] in receipts else 'Ricevuta non disponibile'
             values = (job['app'].title(),job["title"], display["status"], display["next_precise"], last, '', '')
             if job["id"] in existing:
                 if tuple(self.job_list.item(job["id"], "values")) != values:
@@ -631,9 +631,9 @@ class MessagesPanel(ttk.Frame):
             self.job_list.delete(key)
         self.rendering_jobs=False
         self.row_actions.refresh()
-        selected_state=states.get(self.selected_job,{})
-        legacy=selected_state.get('phase') in {'drafted','uncertain'} and selected_state.get('native_stage') not in {'reserved','dispatch_intent','accepted','unknown'}
-        if legacy:self.recovery_button.pack(side='left')
+        # Quarantine can belong to an old version or another job of this ID.
+        # Inspect on demand, without resolving or reading a Claude index on Tk.
+        if self.selected_job:self.recovery_button.pack(side='right',padx=(0,8))
         else:self.recovery_button.pack_forget()
         self.choose_job()
 

@@ -23,6 +23,10 @@ def _schedule_display(job, stored, config, now, waiting_reason=None):
         return {**result, "status": "In pausa", "next": "Riprendi Sentinella" if config.get("paused") else "Riprendi il messaggio"}
     detail = result['detail'].casefold()
     native=state.get('native_stage')
+    if 'invio precedente della stessa chat in verifica' in detail:
+        return {**result,'status':'Verifica ricevuta','next':'Verifica automatica dell’invio precedente; nessun reinvio'}
+    if 'vecchio invio senza conferma' in detail:
+        return {**result,'status':'Da verificare','next':'Gestisci invii incerti nelle Programmazioni'}
     if native in {'reserved','dispatch_intent','accepted','unknown'}:
         if native=='reserved':return {**result,'status':'Preparazione','next':'Collegamento alla chat'}
         if native=='accepted' and 'accodato' in detail:
@@ -130,6 +134,8 @@ def schedule_display(job, stored, config, now, waiting_reason=None):
     detail = result['detail']
     if key == 'unconfirmed':
         detail = 'Un tentativo precedente non ha ancora una ricevuta verificata. La programmazione è abilitata, ma quel tentativo non viene ripetuto per evitare duplicati.'
+        if 'vecchio invio senza conferma' in result['detail'].casefold():
+            detail+=' Apri Programmazioni → Gestisci invii incerti per scegliere come proseguire.'
         if state.get('delivery_error'):detail += ' Ultimo errore: '+state['delivery_error']
     elif key == 'draft':
         detail = 'Il campo messaggio nell’app destinataria contiene una bozza diversa da quella preparata da Sentinella. La programmazione è salvata; il testo nella chat resta intatto e blocca nuovi invii finché il campo non è libero.'

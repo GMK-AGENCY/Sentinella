@@ -46,6 +46,17 @@ class NativeDeliveryTests(unittest.TestCase):
         with patch('automation_policy.idle_seconds',return_value=0):self.step()
         self.assertEqual([],self.sent)
         self.assertEqual(0,self.store.db.execute('SELECT count(*) FROM native_attempts').fetchone()[0])
+
+    def test_legacy_quarantine_on_old_version_is_visible_without_resending(self):
+        self.store.db.execute('CREATE TABLE connector_deliveries(token TEXT,job_id TEXT,thread_id TEXT,confirmed_at REAL)')
+        self.store.db.execute('INSERT INTO connector_deliveries VALUES(?,?,?,NULL)',
+            ('old-token','old-alias',self.job['thread_id']))
+        self.store.db.commit()
+        result=self.step()
+        self.assertEqual('legacy_pending',result['results'][0]['action'])
+        self.assertEqual([],self.sent)
+        self.assertIn('Gestisci invii incerti',self.store.rows()[0]['detail'])
+        self.assertEqual(1060,self.store.rows()[0]['due'])
     def test_pause_during_prepare_cancels_before_effect(self):
         self.prepare_hook=lambda:self.config.update(paused=True)
         self.assertEqual('paused',self.step()['action']);self.assertEqual([],self.sent)
