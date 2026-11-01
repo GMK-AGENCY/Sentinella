@@ -1,5 +1,11 @@
 # Modifiche
 
+## 0.2.23 — in sviluppo
+
+- Riconciliazione Codex della singola nuova riga finale aggiunta al testo nella versione qualificata: hash osservato e atteso restano distinti e la ricevuta originale viene conservata. Ogni altra variazione resta bloccante; nessun reinvio.
+- Il journal ricontrolla questa equivalenza dal messaggio immutabile e dall'item nativo prima di aggiornare il timer. Le ricevute precedenti alla consegna vengono rifiutate.
+- Questa correzione non abilita né qualifica lo steering autonomo delle sessioni desktop durante turni lunghi.
+
 ## 0.2.22
 
 - Invii periodici gestiti dal programma tramite i collegamenti nativi locali di Codex e Claude, identificando la sessione per ID. Nessuna selezione di finestre, digitazione nel compositore o dipendenza da chat e sveglie di controllo.

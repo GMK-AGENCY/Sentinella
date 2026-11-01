@@ -1,6 +1,7 @@
 """Exact native evidence. Assistant output, absence and text similarity prove nothing."""
 from datetime import datetime
 import json
+import re
 from pathlib import Path
 import time
 import uuid
@@ -8,6 +9,20 @@ import uuid
 from delivery_journal import digest
 
 MAX_RECORD_BYTES=16*1024*1024
+
+
+def codex_text_proof(attempt, text):
+    observed=digest(text)
+    expected=attempt['message_hash']
+    match='exact'
+    if observed!=expected:
+        binding=json.loads(attempt['binding_json'])
+        original=json.loads(attempt.get('job_json','{}')).get('message')
+        qualified=re.search(r'(?<![\w.-])0\.166\.0-alpha\.5\.1(?![\w.-])',binding.get('server_version',''))
+        if not (qualified and isinstance(original,str) and digest(original)==expected and text==original+'\n'):
+            raise ValueError('Il testo della ricevuta Codex non corrisponde al messaggio programmato')
+        match='appended_single_lf'
+    return {'message_hash':observed,'expected_message_hash':expected,'text_match':match}
 
 
 def codex_page_receipt(attempt, page, now):
@@ -22,11 +37,13 @@ def codex_page_receipt(attempt, page, now):
             raise ValueError('Contenuto della ricevuta modificato dal destinatario')
         text=''.join(part.get('text','') for part in content)
         stamp=(entry.get('startedAtMs') or item.get('startedAtMs') or 0)/1000
-        if digest(text)!=attempt['message_hash'] or not attempt['created']-1<=stamp<=now+1:
-            raise ValueError('Ricevuta Codex non pertinente per testo o data')
+        proof=codex_text_proof(attempt,text)
+        earliest=max(attempt['created']-1,attempt.get('dispatched') or 0)
+        if not earliest<=stamp<=now+1:
+            raise ValueError('Data della ricevuta Codex non successiva all’invio')
         physical=str(uuid.UUID(item['id']))
         found[physical]={'app':'codex','target_id':binding['runtime_id'],
-            'correlation':attempt['id'],'physical_id':physical,'message_hash':digest(text),
+            'correlation':attempt['id'],'physical_id':physical,**proof,
             'received_at':stamp,'native_item':entry}
     if len(found)>1:raise ValueError('Ricevute multiple per lo stesso invio: nessun nuovo invio')
     return next(iter(found.values()),None)
