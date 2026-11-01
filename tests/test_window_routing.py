@@ -27,13 +27,34 @@ def claude(identifier=TARGET, title='Chat'):
 
 
 class WindowRoutingTests(unittest.TestCase):
-    def read(self, windows, job=None):
-        config={'apps':{'claude':{'process_path':'Claude.exe'}}}
+    def read(self, windows, job=None, app='claude'):
+        config={'apps':{app:{'process_path':app+'.exe'}}}
         auto=SimpleNamespace(SetGlobalSearchTimeout=lambda _:None,ControlFromHandle=lambda handle:handle)
         with patch.dict(sys.modules, {'uiautomation':auto}), patch('chat_desktop.desktop_is_unlocked',return_value=True), \
              patch('chat_desktop.app_window_handles',return_value=list(range(len(windows)))), \
              patch('chat_desktop.native_controls',side_effect=lambda handle:windows[handle]):
-            return snapshot(config,'claude',job) if job is not None else snapshot(config,'claude')
+            return snapshot(config,app,job) if job is not None else snapshot(config,app)
+
+    def test_codex_browser_page_never_replaces_chat_title_or_supplies_composer_buttons(self):
+        doc=Node('DocumentControl','Regia','app://-/index.html')
+        prompt=Node('EditControl','Lavora con ChatGPT');prompt.parent=doc
+        guest=Node('DocumentControl','Canoni - Example','https://example.com/canoni');guest.parent=doc
+        fake=Node('EditControl','Lavora con Codex');fake.parent=guest
+        send=Node('ButtonControl','Invia');send.parent=guest
+        controls,title=self.read([[doc,prompt,guest,fake,send]],app='codex')
+        self.assertEqual(title,'Regia');self.assertEqual(controls,[doc,prompt])
+
+    def test_codex_browser_only_window_is_not_a_second_chat_window(self):
+        doc=Node('DocumentControl','Regia','app://-/index.html')
+        prompt=Node('EditControl','Lavora con Codex');prompt.parent=doc
+        guest=Node('DocumentControl','Website','https://example.com')
+        controls,title=self.read([[guest],[doc,prompt]],app='codex')
+        self.assertEqual(title,'Regia');self.assertEqual(controls,[doc,prompt])
+
+    def test_codex_refuses_browser_only_or_multiple_native_documents(self):
+        for docs in ([Node('DocumentControl','Website','https://example.com')],
+                     [Node('DocumentControl','A','app://-/index.html'),Node('DocumentControl','B','app://-/index.html')]):
+            with self.assertRaises(RuntimeError):self.read([docs],app='codex')
 
     def test_one_chat_and_two_auxiliary_windows_is_a_valid_chat(self):
         expected=claude()

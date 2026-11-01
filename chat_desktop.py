@@ -35,6 +35,11 @@ def snapshot(config, app, job=None):
                 candidates.append(controls)
         except Exception as exc:
             errors.append(type(exc).__name__)
+    if app == 'codex':
+        native = [items for items in candidates if any(c.ControlTypeName=='DocumentControl'
+                  and native_document(c,'codex') is not None for c in items)]
+        if native:
+            candidates = native
     if app == 'claude':
         native = [controls for controls in candidates if document_sessions(controls)]
         if native:
@@ -52,6 +57,14 @@ def snapshot(config, app, job=None):
     if len(candidates) != 1:
         raise RuntimeError(f"Finestra chat {app} non univoca o non disponibile ({len(candidates)} chat utilizzabili; {len(errors)} letture fallite)")
     controls = candidates[0]
+    if app=='codex':
+        # The in-app browser is another DocumentControl. Its page title and
+        # buttons must never become the chat identity or composer controls.
+        native=[c for c in controls if c.ControlTypeName=='DocumentControl'
+                and native_document(c,'codex') is not None]
+        if len(native)!=1:
+            raise RuntimeError('Documento nativo Codex non univoco: nessun invio')
+        controls=document_controls(controls,native[0])
     if app=='claude' and (job or {}).get('session_id'):
         targets=[doc for doc,identifier in document_sessions(controls) if identifier==job['session_id']]
         if targets:

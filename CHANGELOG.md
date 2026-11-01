@@ -1,5 +1,11 @@
 # Modifiche
 
+## 0.2.21
+
+- Il browser incorporato in Codex non può più sostituire il titolo della chat con quello della pagina web aperta. Questo eliminava il riconoscimento di una chat già selezionata e provocava tentativi di selezione ripetuti senza inviare.
+- Le letture e le azioni del mittente sono limitate al documento nativo verificato: campi e pulsanti delle pagine incorporate restano esclusi. Le finestre che espongono solo un sito non contano come una seconda chat.
+- Verificato un invio reale del timer di produzione a Regia mentre risultava attiva e il browser incorporato era aperto, con ricevuta autentica e avanzamento della scadenza di 30 minuti.
+
 ## 0.2.20
 
 - Elenco Codex letto dall'indice locale in sola lettura, con ID e date: non dipende più dai pulsanti della barra laterale o dalle sole chat visibili. Le sessioni interne degli agenti sono escluse. Gli errori dell'indice e dell'interfaccia vengono segnalati esplicitamente.
